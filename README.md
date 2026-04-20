@@ -1,4 +1,4 @@
-# API Handlers-spicer
+# API Handlers-company
 ### API software developed for the purpose of integrating information across multiple platforms as needed for the desired organization.
 ##### CompanyCam to MarketSharp Comment Sync
 
@@ -228,22 +228,22 @@ curl --request DELETE \
 - Run under a process manager (`systemd`, `supervisord`, or `pm2`) so webhook handling survives reboots.
 - Place nginx or Caddy in front for TLS termination and reverse proxy to the Flask/Gunicorn port.
 
-### One-Command Deploy Script (scoup2025sucoscrack)
+### One-Command Deploy Script (server_name)
 
 This repo includes a helper script to transfer and bootstrap on the target host:
 
 ```bash
-./scripts/deploy_to_scoup2025sucoscrack.sh
+./scripts/deploy_to_server_name.sh
 ```
 
 Override defaults as needed:
 
 ```bash
-SERVER_HOST=scoup2025sucoscrack \
+SERVER_HOST=server_name \
 SERVER_USER=youruser \
-SERVER_PATH=/opt/spicer \
+SERVER_PATH=/opt/company \
 DEPLOY_SYSTEMD=1 \
-./scripts/deploy_to_scoup2025sucoscrack.sh
+./scripts/deploy_to_server_name.sh
 ```
 
 Notes:
@@ -271,19 +271,19 @@ One-time install:
 
 ```bash
 mkdir -p "$HOME/Library/LaunchAgents"
-cp deploy/macos/com.spicer.webhook.plist "$HOME/Library/LaunchAgents/"
-cp deploy/macos/com.spicer.worker.plist "$HOME/Library/LaunchAgents/"
-launchctl load "$HOME/Library/LaunchAgents/com.spicer.webhook.plist"
-launchctl load "$HOME/Library/LaunchAgents/com.spicer.worker.plist"
+cp deploy/macos/com.company.webhook.plist "$HOME/Library/LaunchAgents/"
+cp deploy/macos/com.company.worker.plist "$HOME/Library/LaunchAgents/"
+launchctl load "$HOME/Library/LaunchAgents/com.company.webhook.plist"
+launchctl load "$HOME/Library/LaunchAgents/com.company.worker.plist"
 ```
 
 Restart after changes:
 
 ```bash
-launchctl unload "$HOME/Library/LaunchAgents/com.spicer.webhook.plist" || true
-launchctl unload "$HOME/Library/LaunchAgents/com.spicer.worker.plist" || true
-launchctl load "$HOME/Library/LaunchAgents/com.spicer.webhook.plist"
-launchctl load "$HOME/Library/LaunchAgents/com.spicer.worker.plist"
+launchctl unload "$HOME/Library/LaunchAgents/com.company.webhook.plist" || true
+launchctl unload "$HOME/Library/LaunchAgents/com.company.worker.plist" || true
+launchctl load "$HOME/Library/LaunchAgents/com.company.webhook.plist"
+launchctl load "$HOME/Library/LaunchAgents/com.company.worker.plist"
 ```
 
 Logs are written to:
@@ -299,13 +299,13 @@ Quick tunnels rotate URLs. For a permanent webhook URL, use a named tunnel.
 
 ```bash
 cloudflared tunnel login
-cloudflared tunnel create spicer-webhook
+cloudflared tunnel create company-webhook
 ```
 
 Then copy `deploy/cloudflared/config.example.yml` to your local Cloudflare config path, fill in the tunnel UUID/hostname, and run:
 
 ```bash
-cloudflared tunnel run spicer-webhook
+cloudflared tunnel run company-webhook
 ```
 
 After this, set CompanyCam webhook URL to:
@@ -320,7 +320,7 @@ rsync -avz --delete \
   --exclude ".venv" \
   --exclude "__pycache__" \
   --exclude "*.pyc" \
-  /path/to/spicer/ user@server:/opt/spicer/
+  /path/to/company/ user@server:/opt/company/
 ```
 
 ### Example systemd Unit
@@ -331,10 +331,10 @@ Description=CompanyCam to MarketSharp Webhook Service
 After=network.target
 
 [Service]
-User=spicer
-WorkingDirectory=/opt/spicer
-EnvironmentFile=/opt/spicer/.env
-ExecStart=/opt/spicer/.venv/bin/gunicorn -w 4 -b 0.0.0.0:5001 app:app
+User=company
+WorkingDirectory=/opt/company
+EnvironmentFile=/opt/company/.env
+ExecStart=/opt/company/.venv/bin/gunicorn -w 4 -b 0.0.0.0:5001 app:app
 Restart=always
 RestartSec=5
 
@@ -388,7 +388,7 @@ This moves all `unmatched` rows back to `pending` so `queue_ui_poster.py` attemp
 1. Tail logs and create a test comment in CompanyCam:
 
 ```bash
-journalctl -u spicer.service -f
+journalctl -u company.service -f
 ```
 
 1. If running `odata_readonly`, confirm queued rows are being captured:
@@ -424,4 +424,4 @@ The application logs errors and returns appropriate HTTP status codes:
 - `500`: Internal server error
 
 All errors are logged to stdout for debugging.
->>>>>>> 38c2c8d (Initial commit)
+
