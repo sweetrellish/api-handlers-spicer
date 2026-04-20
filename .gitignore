@@ -1,0 +1,20 @@
+# Python cache/bytecode
+__pycache__/
+*.pyc
+
+# Local virtual environment
+.venv/
+
+# Local secrets
+.env
+
+# SQLite runtime files
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
+
+# VS Code workspace settings can be committed selectively if desired
+.vscode/*.code-workspace

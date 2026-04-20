@@ -1,0 +1,17 @@
+[Unit]
+Description=Update CompanyCam webhook URL after cloudflared tunnel starts
+After=spicer-cloudflared.service
+Requires=spicer-cloudflared.service
+
+[Service]
+Type=oneshot
+User=rellis
+WorkingDirectory=/home/rellis/spicer
+EnvironmentFile=/home/rellis/spicer/.env
+ExecStart=/home/rellis/spicer/.venv/bin/python /home/rellis/spicer/scripts/update_cc_webhook_url.py
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
