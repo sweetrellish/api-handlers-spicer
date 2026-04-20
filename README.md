@@ -1,9 +1,30 @@
 # 🖥️⚡️👾⚡️API Handler⚡️👾⚡️🖥️
+![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg)
+![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
+![License](https://img.shields.io/github/license/sweetrellish/api-handlers-spicer)
 ### API software developed for the purpose of integrating information across multiple platforms as needed for the desired organization.
 #### CompanyCam to MarketSharp Comment Sync
-
+## Prerequisites
+- Python 3.8+ (recommended)
+- [pip](https://pip.pypa.io/)
+- [Playwright](https://playwright.dev/python/), if using the UI poster worker
+- OS-specific dependencies (e.g., Chromium, see Playwright install docs)
 This application handles webhook events from CompanyCam and automatically posts comments to the corresponding customer account in MarketSharp.
-
+## Table of Contents
+- [Architecture Overview](#architecture-overview)
+- [Setup](#setup)
+- [How It Works](#how-it-works)
+- [Queue UI Poster Worker](#queue-ui-poster-worker-logged-in-browser-bridge)
+- [Contact Mapping Workflow](#contact-mapping-workflow)
+- [Security Hardening](#security-hardening)
+- [API Endpoints](#api-endpoints)
+- [Deployment](#deployment)
+- [CompanyCam Webhook Configuration](#companycam-webhook-configuration)
+- [Home Server Deployment Notes](#home-server-deployment-notes)
+- [macOS Production Setup](#macos-production-setup-recommended)
+- [Operations Runbook](#operations-runbook)
+- [Troubleshooting](#troubleshooting)
+- [Error Handling](#error-handling)
 ## Architecture Overview
 
 - CompanyCam delivers `comment.*` events to `/webhook/companycam`
@@ -13,8 +34,22 @@ This application handles webhook events from CompanyCam and automatically posts 
 - If MarketSharp is read-only (OData mode), comments are stored in a local pending queue
 - If MarketSharp write API is enabled (REST mode), comment text is posted as a customer note
 
+| `MARKETSHARP_MODE`        | Description                                | Behavior                 |
+|-------------------------- |--------------------------------------------|--------------------------|
+| `auto` (default)          | Detects best mode                          | Automatic selection      |
+| `rest_write`              | Uses MarketSharp REST write API            | Posts notes in real-time |
+| `odata_readonly`          | OData only, cannot write directly          | Queues comments locally  |
+| `odata_write`             | Writes via OData `Notes` entity            | Posts where possible     |
 ## Setup
+## Quick Start
 
+```bash
+git clone https://github.com/sweetrellish/api-handlers-spicer.git
+cd api-handlers-spicer
+pip install -r requirements.txt
+cp .env.example .env
+# Fill in your secrets in .env
+python app.py
 ### 1. Install Dependencies
 
 ```bash
@@ -425,3 +460,19 @@ The application logs errors and returns appropriate HTTP status codes:
 
 All errors are logged to stdout for debugging.
 
+---
+
+### 8. **Contribution & Issues Section**
+
+Encourage external contributors and feedback.
+
+```markdown
+## Contributing
+
+Pull requests are welcome! Please open [issues](https://github.com/sweetrellish/api-handlers-spicer
+/issues) for suggestions or bug reports.
+```
+---
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
