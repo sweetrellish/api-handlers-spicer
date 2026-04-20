@@ -18,3 +18,4 @@ __pycache__/
 
 # VS Code workspace settings can be committed selectively if desired
 .vscode/*.code-workspace
+README.md
