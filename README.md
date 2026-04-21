@@ -40,6 +40,161 @@ This application handles webhook events from CompanyCam and automatically posts 
 | `rest_write`              | Uses MarketSharp REST write API            | Posts notes in real-time |
 | `odata_readonly`          | OData only, cannot write directly          | Queues comments locally  |
 | `odata_write`             | Writes via OData `Notes` entity            | Posts where possible     |
+
+---
+## API Flowchart
+```mermaid
+flowchart TD
+    A([CompanyCam<br>Webhook Event]):::black
+    B{{Verify<br>Secret}}:::white
+    Z([401<br>Unauthorized]):::red
+    C{{Duplicate?}}:::white
+    Z2([200 OK<br>Already processed]):::boldgreen
+    D[[Extract<br>Info]]:::magenta
+    E[[Find Project]]:::boldpurple
+    F[[Resolve Customer]]:::brightblue
+    G[[Search MarketSharp]]:::orange
+    H{{Found?}}:::white
+    I{{API Mode}}:::white
+    Q([Unmatched<br>Queue]):::darkred
+    Q2([Queue<br>Later]):::boldorange
+    R([Write OData]):::magenta
+    S([POST REST]):::boldcyan
+    Y([200 OK]):::boldgreen
+
+    %% Routing
+    A --> B
+    B -- "Invalid"--> Z
+    B -- "Valid" --> C
+    C -- "Yes" --> Z2
+    C -- "No" --> D --> E --> F --> G --> H
+    H -- "No" --> Q --> Y
+    H -- "Yes" --> I
+    I -- "OData Read-Only" --> Q2 --> Y
+    I -- "OData Write" --> R --> Y
+    I -- "REST Write" --> S --> Y
+%% Place these classDefs at the bottom of your Mermaid diagram.
+
+classDef yellow fill:#fabd2f,stroke:#b57614,stroke-width:2px,color:#282828;
+classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
+classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
+classDef darkred fill:#cc241d,stroke:#9d0006,stroke-width:2px,color:#fff;
+classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
+classDef lime fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
+classDef aqua fill:#8ec07c,stroke:#076678,stroke-width:2px,color:#282828;
+classDef cyan fill:#17aabb,stroke:#076678,stroke-width:2px,color:#282828;
+classDef blue fill:#83a598,stroke:#458588,stroke-width:2px,color:#282828;
+classDef brightblue fill:#458588,stroke:#083553,stroke-width:2px,color:#fff;
+classDef purple fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
+classDef magenta fill:#b16286,stroke:#8f3f71,stroke-width:2px,color:#fff;
+classDef violet fill:#b4befe,stroke:#585b70,stroke-width:2px,color:#282828;
+classDef fuschia fill:#fb74d6,stroke:#ad267d,stroke-width:2px,color:#282828;
+classDef black fill:#282828,stroke:#3c3836,stroke-width:2px,color:#eee;
+classDef gray fill:#a89984,stroke:#7c6f64,stroke-width:2px,color:#282828;
+classDef silver fill:#f2e5bc,stroke:#bdae93,stroke-width:2px,color:#282828;
+classDef white fill:#fbf1c7,stroke:#ebdbb2,stroke-width:2px,color:#282828;
+
+%% Fun/Starship-inspired
+classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
+classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
+classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
+classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
+classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
+
+    %% Gruvbox vibrant style
+    classDef yellow fill:#fabd2f,stroke:#d79921,stroke-width:2px,color:#282828;
+    classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
+    classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
+    classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
+    classDef aqua  fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
+    classDef blue  fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
+    classDef purple fill:#b16286,stroke:#7c3a63,stroke-width:2px,color:#282828;
+    classDef magenta fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
+    classDef lime  fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
+
+```
+## Process Sequencing
+```mermaid
+sequenceDiagram
+%%{init: {'theme': 'base', 'themeVariables': { 'actorBkg': 'green', 'actorBorder': 'aqua', 'actorTextColor': 'purple', 'textColor': 'lime' }}}%%
+    actor CC@{"type": "database"} as CompanyCam
+    actor API@{ "type": "boundary"} as API Handler
+    actor MS@{ "type": "database" } as MarketSharp
+
+    CC->>API: POST webhook event
+    API->>API: Verify & dedupe
+    alt Invalid webhook
+        API-->>CC: 401 Unauthorized
+    else Duplicate event
+        API-->>CC: 200 OK
+    else Valid & New
+        API->>API: Extract info
+        API->>MS: Search customer
+        alt Customer not found
+            API->>API: Queue as unmatched
+            API-->>CC: 200 OK
+        else REST mode
+            API->>MS: POST note
+            API-->>CC: 200 OK
+        else OData readonly
+            API->>API: Queue SQLite
+            API-->>CC: 200 OK
+        else OData write
+            API->>MS: POST OData
+            API-->>CC: 200 OK
+        end
+    end
+
+```
+## Class Diagram 
+```mermaid
+classDiagram
+    class App.py {
+        run()
+        handle_webhook()
+        health_endpoint()
+    }
+    class CompanyCamWebhookHandler {
+        validate_signature()
+        deduplicate()
+        extract_comment()
+    }
+    class MarketSharpAPI {
+        search_customer()
+        post_note()
+        write_via_odata()
+    }
+    class QueueManager {
+        queue_comment()
+        fetch_pending()
+        replay_pending()
+    }
+
+    App.py --|> CompanyCamWebhookHandler : Methods
+    App.py --|> MarketSharpAPI : Methods
+    App.py --|> QueueManager : Methods
+
+    class App.py::: boldpurple
+    class CompanyCamWebhookHandler::: boldorange
+    class MarketSharpAPI::: boldcyan
+    class QueueManager::: boldgreen
+
+    %% Gruvbox vibrant style
+    classDef yellow fill:#fabd2f,stroke:#d79921,stroke-width:2px,color:#282828;
+    classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
+    classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
+    classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
+    classDef aqua  fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
+    classDef blue  fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
+    classDef purple fill:#b16286,stroke:#7c3a63,stroke-width:2px,color:#282828;
+    classDef magenta fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
+    classDef lime  fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
+    classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
+    classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
+    classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
+    classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
+    classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
+```
 ## Setup
 ## Quick Start
 
