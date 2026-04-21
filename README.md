@@ -1,5 +1,5 @@
 # 🖥️⚡️👾⚡️API Handler⚡️👾⚡️🖥️
-#### ![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg)
+![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg) :
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
 ![License](https://img.shields.io/github/license/sweetrellish/api-handlers-spicer)
 ### API software developed for the purpose of integrating information across multiple platforms as needed for the desired organization.
