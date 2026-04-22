@@ -18,6 +18,9 @@ class PendingCommentQueue:
         return sqlite3.connect(self.db_path)
 
     def _ensure_table(self):
+        # Ensure the pending_comments table exists and includes retry_count for robust retry tracking.
+        # The retry_count column is added for automatic escalation after repeated unmatched cycles.
+        # Migration is attempted on startup for safety if the column is missing.
         with self._connect() as conn:
             conn.execute(
                 """
@@ -31,11 +34,48 @@ class PendingCommentQueue:
                     status TEXT NOT NULL DEFAULT 'pending',
                     last_error TEXT,
                     created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    retry_count INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            # Try to add retry_count if missing (for migration safety)
+            try:
+                conn.execute("ALTER TABLE pending_comments ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;")
+            except Exception:
+                pass
             conn.commit()
+    def mark_true_fail(self, queue_id, error_message):
+        """Mark an item as a true failure after all retries/manual review."""
+        now = int(time.time())
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE pending_comments
+                    SET status = 'true_fail', last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (error_message[:1000], now, queue_id),
+                )
+                conn.commit()
+
+    def get_true_fail_items(self, limit=20):
+        """Return true_fail rows for review or manual fix."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, event_id, customer_name, comment_text, author_name, payload_json,
+                       status, last_error, created_at, updated_at
+                FROM pending_comments
+                WHERE status = 'true_fail'
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def enqueue(self, event_id, customer_name, comment_text, author_name=None, payload=None, last_error=None):
         """Insert a pending comment if unseen; return its queue metadata."""
@@ -124,14 +164,14 @@ class PendingCommentQueue:
                 conn.commit()
 
     def mark_posted(self, queue_id):
-        """Mark an item as posted successfully."""
+        """Mark an item as posted successfully and reset retry_count."""
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
                     UPDATE pending_comments
-                    SET status = 'posted', last_error = NULL, updated_at = ?
+                    SET status = 'posted', last_error = NULL, updated_at = ?, retry_count = 0
                     WHERE id = ?
                     """,
                     (now, queue_id),
@@ -154,14 +194,14 @@ class PendingCommentQueue:
                 conn.commit()
 
     def mark_unmatched(self, queue_id, error_message):
-        """Mark an item as unmatched when no safe customer match is found."""
+        """Mark an item as unmatched and increment retry_count."""
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
                     """
                     UPDATE pending_comments
-                    SET status = 'unmatched', last_error = ?, updated_at = ?
+                    SET status = 'unmatched', last_error = ?, updated_at = ?, retry_count = retry_count + 1
                     WHERE id = ?
                     """,
                     (error_message[:1000], now, queue_id),
@@ -198,6 +238,7 @@ class PendingCommentQueue:
         cutoff = now - int(max_age_seconds)
         with self._lock:
             with self._connect() as conn:
+                # Increment retry_count for all requeued unmatched
                 cur = conn.execute(
                     """
                     UPDATE pending_comments
@@ -208,7 +249,8 @@ class PendingCommentQueue:
                                 THEN 'Scheduled retry for previously unmatched customer'
                             ELSE last_error
                         END,
-                        updated_at = ?
+                        updated_at = ?,
+                        retry_count = retry_count + 1
                     WHERE status = 'unmatched' AND updated_at < ?
                     """,
                     (now, cutoff),
@@ -249,7 +291,8 @@ class PendingCommentQueue:
                 GROUP BY status
                 """
             ).fetchall()
-            counts = {'pending': 0, 'processing': 0, 'posted': 0, 'unmatched': 0}
+            counts = {'pending': 0, 'processing': 0, 'posted': 0, 'unmatched': 0, 'true_fail': 0}
             for status, count in rows:
                 counts[status] = count
             return counts
+

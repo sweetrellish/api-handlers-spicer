@@ -74,9 +74,9 @@ def build_ui_config():
         user_data_dir=os.getenv('MARKETSHARP_UI_USER_DATA_DIR', '.marketsharp-profile').strip(),
         headless=os.getenv('MARKETSHARP_UI_HEADLESS', 'False').lower() == 'true',
         batch_size=int(os.getenv('QUEUE_WORKER_BATCH_SIZE', '5')),
-        poll_seconds=int(os.getenv('QUEUE_WORKER_POLL_SECONDS', '20')),
+        poll_seconds=1,  # Set poll interval to 1 second for rapid queue cycling
         processing_timeout_seconds=int(os.getenv('QUEUE_PROCESSING_TIMEOUT_SECONDS', '300')),
-        unmatched_retry_seconds=int(os.getenv('QUEUE_UNMATCHED_RETRY_SECONDS', '3600')),
+        unmatched_retry_seconds=int(os.getenv('QUEUE_UNMATCHED_RETRY_SECONDS', '10')),
         unmatched_dump_path=os.getenv('QUEUE_UNMATCHED_DUMP_PATH', 'unmatched_comments.jsonl').strip(),
         search_input_selector=os.getenv('MARKETSHARP_UI_SEARCH_SELECTOR', '').strip(),
         first_result_selector=os.getenv('MARKETSHARP_UI_FIRST_RESULT_SELECTOR', '').strip(),
@@ -133,7 +133,7 @@ def wait_for_login(page, ui_cfg):
     logging.info('Login check selector detected; continuing worker startup.')
 
 
-def pick_visible_locator(page, selectors, timeout_ms=5000):
+def pick_visible_locator(page, selectors, timeout_ms=500):
     """Return the first locator whose selector is visible on the page."""
     tried = []
     for selector in selectors:
@@ -150,7 +150,7 @@ def pick_visible_locator(page, selectors, timeout_ms=5000):
     raise PlaywrightTimeoutError(f'No visible selector found. Tried: {tried}')
 
 
-def click_first_visible_result(page, selectors, timeout_ms=12000):
+def click_first_visible_result(page, selectors, timeout_ms=700):
     """Click the first visible autocomplete result from any supported selector."""
     deadline = time.time() + (timeout_ms / 1000.0)
     tried = [s for s in selectors if s]
@@ -164,10 +164,10 @@ def click_first_visible_result(page, selectors, timeout_ms=12000):
 
             first = locator.first
             if first.is_visible():
-                first.click(timeout=10000)
+                first.click(timeout=300)
                 return selector
 
-        page.wait_for_timeout(250)
+        page.wait_for_timeout(20)
 
     raise PlaywrightTimeoutError(f'No visible autocomplete result found. Tried: {tried}')
 
@@ -245,7 +245,7 @@ def _search_query_variants(customer_name):
     return _unique_strings(variants)
 
 
-def _fill_search_query(page, search_candidates, customer_query, timeout_ms=10000):
+def _fill_search_query(page, search_candidates, customer_query, timeout_ms=400):
     """Fill the MarketSharp search input with the given query using visible or hidden fallback."""
     search_selector_used = None
     search_box = None
@@ -258,6 +258,19 @@ def _fill_search_query(page, search_candidates, customer_query, timeout_ms=10000
         search_box.click()
         search_box.fill('')
         search_box.fill(customer_query)
+        # Force UI to update instantly by dispatching Enter keyup event
+        page.evaluate(
+            """
+            (selector) => {
+                const el = document.querySelector(selector);
+                if (el) {
+                    el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+                }
+            }
+            """,
+            search_selector_used,
+        )
+        page.wait_for_timeout(0)
         return search_box, search_selector_used
     except PlaywrightTimeoutError:
         for selector in [s for s in search_candidates if s]:
@@ -273,7 +286,7 @@ def _fill_search_query(page, search_candidates, customer_query, timeout_ms=10000
                     el.dispatchEvent(new Event('input', { bubbles: true }));
                     el.value = value;
                     el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+                    el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
                     return true;
                 }
                 """,
@@ -318,7 +331,7 @@ def click_matching_result(page, selectors, customer_name, timeout_ms=12000):
 
                 # Exact/variant match is safest; click immediately.
                 if label in target_variants:
-                    item.click(timeout=10000)
+                    item.click(timeout=200)
                     return selector, label
 
                 # Keep the closest safe fallback only when result starts with target.
@@ -336,14 +349,14 @@ def click_matching_result(page, selectors, customer_name, timeout_ms=12000):
                 seen_labels[selector] = labels_for_selector
 
         if best_prefix is not None:
-            best_prefix[0].click(timeout=10000)
+            best_prefix[0].click(timeout=200)
             return best_prefix[1], best_prefix[2]
 
         if best_token_overlap is not None:
-            best_token_overlap[1].click(timeout=10000)
+            best_token_overlap[1].click(timeout=200)
             return best_token_overlap[2], best_token_overlap[3]
 
-        page.wait_for_timeout(250)
+        page.wait_for_timeout(5)
 
     raise PlaywrightTimeoutError(
         f'No matching autocomplete result found for "{customer_name}". '
@@ -394,6 +407,8 @@ def _extract_project_id_from_payload(payload_obj):
         project_obj = {}
     if not project_obj and isinstance(nested_payload.get('project'), dict):
         project_obj = nested_payload.get('project', {})
+        if not isinstance(project_obj, dict):
+            project_obj = {}
 
     project_id = (
         comment_data.get('project_id')
@@ -432,7 +447,7 @@ def _extract_project_address_from_payload(payload_obj):
         return {}
 
     spicer_meta = payload_obj.get('_spicer') if isinstance(payload_obj.get('_spicer'), dict) else {}
-    if isinstance(spicer_meta.get('project_address'), dict):
+    if isinstance(spicer_meta, dict):
         return spicer_meta.get('project_address')
 
     comment_data = payload_obj.get('data') or payload_obj.get('payload') or payload_obj
@@ -446,29 +461,38 @@ def _extract_project_address_from_payload(payload_obj):
     project_obj = comment_data.get('project', {})
     if not isinstance(project_obj, dict):
         project_obj = {}
-    if not project_obj and isinstance(nested_payload.get('project'), dict):
+    if not project_obj and isinstance(nested_payload, dict):
         project_obj = nested_payload.get('project', {})
+        if not isinstance(project_obj, dict):
+            project_obj = {}
 
+    # Ensure nested_address is a dict, else use empty dict
     nested_address = project_obj.get('address') if isinstance(project_obj.get('address'), dict) else {}
+    # Ensure all .get() calls are on dicts only
     address = {
         'street': (
-            nested_address.get('street')
-            or nested_address.get('line1')
-            or nested_address.get('address1')
-            or project_obj.get('address')
-            or project_obj.get('address1')
-            or project_obj.get('street')
+            (nested_address.get('street') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('line1') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('address1') if isinstance(nested_address, dict) else '')
+            or (project_obj.get('address1') if isinstance(project_obj, dict) else '')
+            or (project_obj.get('street') if isinstance(project_obj, dict) else '')
             or ''
         ),
-        'city': nested_address.get('city') or project_obj.get('city') or '',
-        'state': nested_address.get('state') or nested_address.get('stateCode') or project_obj.get('state') or project_obj.get('stateCode') or '',
+        'city': (nested_address.get('city') if isinstance(nested_address, dict) else '') or (project_obj.get('city') if isinstance(project_obj, dict) else ''),
+        'state': (
+            (nested_address.get('state') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('stateCode') if isinstance(nested_address, dict) else '')
+            or (project_obj.get('state') if isinstance(project_obj, dict) else '')
+            or (project_obj.get('stateCode') if isinstance(project_obj, dict) else '')
+            or ''
+        ),
         'postal': (
-            nested_address.get('postal')
-            or nested_address.get('postalCode')
-            or nested_address.get('zip')
-            or project_obj.get('postalCode')
-            or project_obj.get('zip')
-            or project_obj.get('zipCode')
+            (nested_address.get('postal') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('postalCode') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('zip') if isinstance(nested_address, dict) else '')
+            or (project_obj.get('postalCode') if isinstance(project_obj, dict) else '')
+            or (project_obj.get('zip') if isinstance(project_obj, dict) else '')
+            or (project_obj.get('zipCode') if isinstance(project_obj, dict) else '')
             or ''
         ),
     }
@@ -491,30 +515,35 @@ def _extract_project_address_from_companycam(project_id):
     if not isinstance(project, dict):
         return {}
 
+    # Ensure nested_address is a dict, else use empty dict
     nested_address = project.get('address') if isinstance(project.get('address'), dict) else {}
     address = {
         'street': (
-            nested_address.get('street')
-            or nested_address.get('line1')
-            or nested_address.get('address1')
-            or project.get('address')
-            or project.get('address1')
-            or project.get('street')
+            (nested_address.get('street') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('line1') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('address1') if isinstance(nested_address, dict) else '')
+            or (project.get('address1') if isinstance(project, dict) else '')
+            or (project.get('street') if isinstance(project, dict) else '')
             or ''
         ),
-        'city': nested_address.get('city') or project.get('city') or '',
-        'state': nested_address.get('state') or nested_address.get('stateCode') or project.get('state') or project.get('stateCode') or '',
+        'city': (nested_address.get('city') if isinstance(nested_address, dict) else '') or (project.get('city') if isinstance(project, dict) else ''),
+        'state': (
+            (nested_address.get('state') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('stateCode') if isinstance(nested_address, dict) else '')
+            or (project.get('state') if isinstance(project, dict) else '')
+            or (project.get('stateCode') if isinstance(project, dict) else '')
+            or ''
+        ),
         'postal': (
-            nested_address.get('postal')
-            or nested_address.get('postalCode')
-            or nested_address.get('zip')
-            or project.get('postalCode')
-            or project.get('zip')
-            or project.get('zipCode')
+            (nested_address.get('postal') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('postalCode') if isinstance(nested_address, dict) else '')
+            or (nested_address.get('zip') if isinstance(nested_address, dict) else '')
+            or (project.get('postalCode') if isinstance(project, dict) else '')
+            or (project.get('zip') if isinstance(project, dict) else '')
+            or (project.get('zipCode') if isinstance(project, dict) else '')
             or ''
         ),
     }
-
     if any(str(value).strip() for value in address.values()):
         return {key: str(value).strip() for key, value in address.items()}
     return {}
@@ -546,6 +575,7 @@ def resolve_direct_contact_url(item, ui_cfg):
     if direct_contact_url:
         return direct_contact_url, name_key
 
+    # First, try to match by name (with address as tie-breaker)
     customer = MarketSharpService().get_customer_by_name(
         customer_name,
         project_address=project_address,
@@ -557,11 +587,21 @@ def resolve_direct_contact_url(item, ui_cfg):
         )
         return auto_url, 'marketsharp-name-match'
 
+    # Double-check: try to match by address only if name match failed
+    if project_address and any(project_address.values()):
+        customer_by_address = MarketSharpService().get_customer_by_address(project_address)
+        if customer_by_address and customer_by_address.get('id'):
+            auto_url = (
+                f'https://www2.marketsharpm.com/ContactDetail.aspx?contactOid={customer_by_address["id"]}'
+                f'&contactType={ui_cfg.contact_type}'
+            )
+            return auto_url, 'marketsharp-address-match'
+
     return None, None
 
 
-def open_customer_and_add_note(page, ui_cfg, item, note_text):
-    """Search for customer in MarketSharp UI and add a note."""
+def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=None):
+    """Search for customer in MarketSharp UI and add a note. Optionally override search query."""
     customer_name = item['customer_name']
     direct_contact_url, direct_contact_key = resolve_direct_contact_url(item, ui_cfg)
     if direct_contact_url:
@@ -572,10 +612,12 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text):
             direct_contact_url,
         )
         page.goto(direct_contact_url, wait_until='domcontentloaded', timeout=120000)
+        page.wait_for_load_state('domcontentloaded')
     else:
         for attempt in (1, 2, 3):
             try:
                 page.goto(ui_cfg.base_url, wait_until='domcontentloaded', timeout=120000)
+                page.wait_for_load_state('domcontentloaded')
                 break
             except PlaywrightError as exc:
                 if 'net::ERR_ABORTED' in str(exc) and attempt < 3:
@@ -584,7 +626,6 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text):
                     continue
                 raise
 
-        # Support both desktop and mobile layouts where one search box may be hidden.
         search_candidates = [
             ui_cfg.search_input_selector,
             '#searchTextBox',
@@ -606,85 +647,32 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text):
         ]
 
         last_match_exc = None
-        for customer_query in _search_query_variants(customer_name):
-            search_box = None
-            search_selector_used = None
+        customer_query = search_override if search_override is not None else customer_name
+        try:
+            # Ensure page is fully loaded before interacting
+            page.wait_for_load_state('domcontentloaded')
+            search_box, search_selector_used = pick_visible_locator(page, search_candidates, timeout_ms=500)
+            search_box.click()
+            search_box.fill(customer_query)
+            # Dispatch keyup/Enter to force UI update
+            page.keyboard.press('Enter')
+            page.wait_for_timeout(5)
+            # Robust navigation wait: try to wait for navigation, catch context errors, and retry DOM readiness
             try:
-                search_box, search_selector_used = _fill_search_query(
-                    page,
-                    search_candidates,
-                    customer_query,
-                    timeout_ms=10000,
-                )
-                logging.info('Trying MarketSharp search query for %s: %s', customer_name, customer_query)
-            except PlaywrightTimeoutError:
-                last_match_exc = PlaywrightTimeoutError(
-                    f'No usable MarketSharp search input found for "{customer_name}" while trying query "{customer_query}".'
-                )
-                continue
-
-            page.wait_for_timeout(1500)
-
-            try:
-                result_selector_used, result_label = click_matching_result(
-                    page,
-                    result_candidates,
-                    customer_name=customer_name,
-                    timeout_ms=12000,
-                )
-                logging.info(
-                    'Using result selector: %s matched_label="%s" query="%s"',
-                    result_selector_used,
-                    result_label,
-                    customer_query,
-                )
-                last_match_exc = None
-                break
-            except PlaywrightTimeoutError as match_exc:
-                last_match_exc = match_exc
-                if not search_selector_used:
-                    continue
-
-                logging.warning(
-                    'No visible autocomplete match for "%s" using query "%s"; trying Enter-key fallback on %s',
-                    customer_name,
-                    customer_query,
-                    search_selector_used,
-                )
-                search_target = search_box if search_box is not None else page.locator(search_selector_used).first
-                search_target.press('ArrowDown')
-                page.wait_for_timeout(400)
-                search_target.press('Enter')
+                page.wait_for_load_state('domcontentloaded', timeout=7000)
+            except Exception as nav_exc:
+                logging.warning('Navigation wait after search triggered an exception: %s', nav_exc)
+                # Try to wait for the DOM to be ready again
                 try:
-                    page.wait_for_load_state('domcontentloaded', timeout=10000)
-                except PlaywrightTimeoutError:
-                    logging.info('Enter fallback load-state wait timed out; continuing.')
-
-                page.wait_for_timeout(1500)
-
-                try:
-                    pick_visible_locator(
-                        page,
-                        [
-                            ui_cfg.note_button_selector,
-                            'a[id*="AddNewButton"]',
-                            'input[id*="AddNewButton"]',
-                            'button:has-text("Add Note")',
-                            'a:has-text("Add Note")',
-                        ],
-                        timeout_ms=7000,
-                    )
-                    logging.info(
-                        'Enter-key fallback reached note controls for %s using query "%s".',
-                        customer_name,
-                        customer_query,
-                    )
-                    last_match_exc = None
-                    break
-                except PlaywrightTimeoutError:
-                    continue
-
-        if last_match_exc is not None:
+                    page.wait_for_load_state('domcontentloaded', timeout=7000)
+                except Exception as nav_exc2:
+                    logging.error('Second navigation wait also failed: %s', nav_exc2)
+                    raise
+            # Now interact with the DOM
+            result_selector, label = click_matching_result(page, result_candidates, customer_query, timeout_ms=12000)
+            logging.info('Clicked result selector=%s label=%s', result_selector, label)
+        except PlaywrightTimeoutError as exc:
+            last_match_exc = exc
             raise last_match_exc
 
     try:
@@ -753,28 +741,112 @@ def process_once(page, ui_cfg, queue):
         customer_name = item['customer_name']
         comment_text = item['comment_text']
         note_text = comment_text
+        retry_count = item.get('retry_count', 0)
+
+        # Extract address info if present
+        payload_json = item.get('payload_json') or ''
+        address_variants = []
+        extracted_address = None
+        if payload_json:
+            try:
+                payload_obj = json.loads(payload_json)
+                address_obj = _extract_project_address_from_payload(payload_obj)
+                if address_obj and any(address_obj.values()):
+                    addr_str = ' '.join([str(address_obj.get(k, '')) for k in ('street', 'city', 'state', 'postal') if address_obj.get(k)])
+                    if addr_str.strip():
+                        address_variants.append(addr_str.strip())
+                        extracted_address = addr_str.strip()
+            except Exception as exc:
+                logging.warning('Failed to parse address from payload for queue_id=%s: %s', queue_id, exc)
+        logging.info('Extracted address for queue_id=%s: %s', queue_id, extracted_address)
+
+        # Build all search queries: name variants, address variants, and combos
+        name_variants = list(_search_query_variants(customer_name))
+        search_variants = name_variants.copy()
+        for addr in address_variants:
+            # Try address only
+            search_variants.append(addr)
+            # Try name + address
+            for nv in name_variants:
+                search_variants.append(f'{nv} {addr}')
 
         queue.mark_processing(queue_id)
-        try:
-            open_customer_and_add_note(page, ui_cfg, item, note_text)
-            queue.mark_posted(queue_id)
-            logging.info('Posted queued item id=%s customer=%s', queue_id, customer_name)
-        except PlaywrightTimeoutError as exc:
-            error_text = str(exc)
-            if 'No matching autocomplete result found' in error_text:
-                queue.mark_unmatched(queue_id, f'Unmatched customer: {error_text}')
-                append_unmatched_dump(ui_cfg.unmatched_dump_path, item, error_text)
+        posted = False
+        last_error = None
+        for idx, variant in enumerate(search_variants):
+            logging.info('Attempting search variant %d/%d: "%s"', idx + 1, len(search_variants), variant)
+            for attempt in range(3):
+                try:
+                    open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=variant)
+                    queue.mark_posted(queue_id)
+                    logging.info('Posted queued item id=%s customer=%s using search="%s"', queue_id, customer_name, variant)
+                    posted = True
+                    break
+                except Exception as exc:
+                    if 'Execution context was destroyed' in str(exc) or 'Most likely because of a navigation' in str(exc):
+                        logging.warning('Execution context lost on search variant "%s" (attempt %d), reloading page and retrying...', variant, attempt + 1)
+                        try:
+                            page.reload(wait_until='domcontentloaded', timeout=15000)
+                            page.wait_for_load_state('domcontentloaded', timeout=15000)
+                        except Exception as reload_exc:
+                            logging.error('Page reload failed: %s', reload_exc)
+                        continue
+                    last_error = str(exc)
+                    logging.exception('Error posting queued item id=%s (search="%s", attempt %d)', queue_id, variant, attempt + 1)
+                    break
+                # If posted, break out of retry loop
+                if posted:
+                    break
+            if posted:
+                break
+
+        # If all variants failed, and address is available, try address-only search as a final check
+        if not posted and address_variants:
+            for addr in address_variants:
+                logging.info('Final address-only check for queue_id=%s: "%s"', queue_id, addr)
+                for attempt in range(3):
+                    try:
+                        open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=addr)
+                        queue.mark_posted(queue_id)
+                        logging.info('Posted queued item id=%s customer=%s using address-only search="%s"', queue_id, customer_name, addr)
+                        posted = True
+                        break
+                    except Exception as exc:
+                        if 'Execution context was destroyed' in str(exc) or 'Most likely because of a navigation' in str(exc):
+                            logging.warning('Execution context lost on address-only search "%s" (attempt %d), reloading page and retrying...', addr, attempt + 1)
+                            try:
+                                page.reload(wait_until='domcontentloaded', timeout=15000)
+                                page.wait_for_load_state('domcontentloaded', timeout=15000)
+                            except Exception as reload_exc:
+                                logging.error('Page reload failed: %s', reload_exc)
+                            continue
+                        last_error = str(exc)
+                        logging.exception('Error posting queued item id=%s (address-only search="%s", attempt %d)', queue_id, addr, attempt + 1)
+                        break
+                    if posted:
+                        break
+                if posted:
+                    break
+
+        if not posted:
+            # If all variants failed, escalate or mark unmatched
+            retry_count = item.get('retry_count', 0)
+            if retry_count >= 4:
+                queue.mark_true_fail(queue_id, f'Exceeded retry limit for "{customer_name}": {last_error}')
+                append_unmatched_dump(ui_cfg.unmatched_dump_path, item, last_error)
+                logging.warning(
+                    'Escalated queued item id=%s to true_fail after 5 tries (customer=%s).',
+                    queue_id,
+                    customer_name,
+                )
+            else:
+                queue.mark_unmatched(queue_id, f'Unmatched customer: {last_error}')
+                append_unmatched_dump(ui_cfg.unmatched_dump_path, item, last_error)
                 logging.warning(
                     'Marked queued item id=%s as unmatched (customer=%s).',
                     queue_id,
                     customer_name,
                 )
-            else:
-                queue.mark_failed(queue_id, f'UI timeout: {exc}')
-                logging.exception('Timeout posting queued item id=%s', queue_id)
-        except Exception as exc:
-            queue.mark_failed(queue_id, f'UI error: {exc}')
-            logging.exception('Error posting queued item id=%s', queue_id)
 
     return len(pending_items)
 
@@ -846,3 +918,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

@@ -11,9 +11,8 @@ import requests
 from config import Config
 
 
-class MarketSharpService:
-    """Service for interacting with MarketSharp API"""
 
+class MarketSharpService:
     def __init__(self):
         self.mode = Config.MARKETSHARP_MODE
         self.base_url = Config.MARKETSHARP_BASE_URL.rstrip('/')
@@ -30,6 +29,80 @@ class MarketSharpService:
             'Content-Type': 'application/json'
         }
         self.effective_mode = self._resolve_mode()
+
+    def get_customer_by_address(self, project_address):
+        """Return the best customer match for a given address (street/city/state/postal)."""
+        if not isinstance(project_address, dict) or not any(project_address.values()):
+            return None
+
+        if self.effective_mode == 'rest_write':
+            # REST: Try searching by postal, city, or street (if supported by your REST API)
+            # This is a fallback; REST API may not support direct address search.
+            for field in ('postal', 'city', 'street'):
+                value = project_address.get(field)
+                if value:
+                    try:
+                        response = requests.get(
+                            f'{self.base_url}/customers',
+                            headers=self.rest_headers,
+                            params={field: value},
+                            timeout=self.timeout
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        customers = data.get('data', []) if isinstance(data, dict) else data
+                        best = None
+                        best_score = -100
+                        for customer in customers:
+                            score = self._address_match_score(project_address, customer)
+                            if score > best_score:
+                                best = customer
+                                best_score = score
+                        if best and best_score >= 0:
+                            return best
+                    except requests.RequestException as e:
+                        logging.warning('REST address search failed for %s=%s: %s', field, value, e)
+            return None
+
+        # OData: Search by postal, city, or street
+        addr = self._normalize_address_obj(project_address)
+        search_fields = []
+        if addr.get('postal'):
+            search_fields.append(('postalCode', addr['postal']))
+            search_fields.append(('zipCode', addr['postal']))
+        if addr.get('city'):
+            search_fields.append(('city', addr['city']))
+        if addr.get('street'):
+            search_fields.append(('address1', addr['street']))
+            search_fields.append(('street', addr['street']))
+
+        contacts_by_id = {}
+        for field, value in search_fields:
+            escaped_value = value.replace("'", "''")
+            filter_query = f"$filter=substringof('{escaped_value}',{field})"
+            try:
+                contacts = self._odata_fetch_contacts(filter_query, top=50)
+                for contact in contacts:
+                    cid = contact.get('id')
+                    if cid:
+                        contacts_by_id[cid] = contact
+            except requests.RequestException as exc:
+                logging.warning('OData address search failed for %s=%s: %s', field, value, exc)
+
+        if not contacts_by_id:
+            return None
+
+        # Score and pick best
+        best = None
+        best_score = -100
+        for contact in contacts_by_id.values():
+            score = self._address_match_score(project_address, contact)
+            if score > best_score:
+                best = contact
+                best_score = score
+        if best and best_score >= 0:
+            return best
+        return None
 
     def _resolve_mode(self):
         """Pick the active integration mode from configured credentials."""
@@ -648,3 +721,4 @@ class MarketSharpService:
         except requests.RequestException as e:
             logging.exception('Error posting OData note to customer %s: %s', customer_id, str(e))
             return None
+

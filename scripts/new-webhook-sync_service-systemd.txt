@@ -1,0 +1,21 @@
+[Unit]
+Description=Sync CompanyCam webhook URL to current Cloudflared tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=rellis
+WorkingDirectory=/home/rellis/spicer/deploy/linux
+ExecStart=/home/rellis/spicer/deploy/linux/sync_companycam_webhook.sh
+Restart=on-failure
+RestartSec=5
+# Optional: Limit restarts to avoid rapid-fail loops
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Logging (optional, for debugging)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

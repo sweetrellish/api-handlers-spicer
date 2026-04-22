@@ -1,0 +1,9 @@
+[Unit]
+Description=Periodic True Fail Queue Checker
+
+[Service]
+Type=oneshot
+User=rellis
+WorkingDirectory=/home/rellis/spicer
+ExecStart=/usr/bin/python3 /home/rellis/spicer/true_fail_checker.py
+
