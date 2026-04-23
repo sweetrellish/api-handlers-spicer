@@ -14,9 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from config import Config
-from mapping_registry import load_mapping_file, save_mapping_file
-from queue_ui_poster import _extract_project_id_from_payload
+from config.config import Config
+from src.mapping_registry import load_mapping_file, save_mapping_file
+from src.queue_ui_poster import _extract_project_id_from_payload
 
 
 def resolve_project_id(queue_id):

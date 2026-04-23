@@ -57,8 +57,17 @@ def main():
             print("[INFO] No changes to commit.")
             return
 
+
         print("[INFO] Generating commit message...")
         commit_msg = summarize_changes(changed_files)
+        # If the message is empty or generic, prompt the user
+        if not commit_msg.strip() or commit_msg.strip() == "No changes to commit.":
+            print("[WARN] Could not generate a meaningful commit message.")
+            user_msg = input("Please enter a commit message for this commit: ").strip()
+            if not user_msg:
+                print("[FATAL] Commit message is required. Aborting.")
+                sys.exit(1)
+            commit_msg = user_msg
         print(f"[INFO] Commit message:\n{commit_msg}\n")
 
         print("[INFO] Committing...")

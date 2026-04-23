@@ -13,9 +13,9 @@ Features:
 
 import sys
 import json
-from pending_queue import PendingCommentQueue
+from src.pending_queue import PendingCommentQueue
 from scripts.posted_comments_audit import log_posted_comment
-from config import Config
+from config.config import Config
 
 def print_item_details(item):
     print("\n--- Queue Item ---")
