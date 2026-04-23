@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 import requests
 from config import Config
+from scripts.posted_comments_audit import log_posted_comment
 
 
 
@@ -639,8 +640,13 @@ class MarketSharpService:
             logging.info('Skipping direct write: MarketSharp mode is %s', self.effective_mode)
             return None
         try:
+            # Prepend author to comment text if present and not already present
+            note_text = comment_text
+            if author_name and author_name.strip() and not comment_text.strip().startswith(f'[{author_name.strip()}]'):
+                note_text = f'[{author_name.strip()}] {comment_text.strip()}'
+
             payload = {
-                'text': comment_text,
+                'text': note_text,
                 # Keep the mapped object type explicit for future API changes.
                 'type': 'note'
             }
@@ -667,8 +673,8 @@ class MarketSharpService:
     def _post_comment_odata(self, customer_id, comment_text, author_name=None):
         """Create a MarketSharp note through the OData Notes entity."""
         note_body = comment_text
-        if author_name:
-            note_body = f'[{author_name}] {comment_text}'
+        if author_name and author_name.strip() and not comment_text.strip().startswith(f'[{author_name.strip()}]'):
+            note_body = f'[{author_name.strip()}] {comment_text.strip()}'
 
         now_iso = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         base_payload = {
@@ -721,4 +727,15 @@ class MarketSharpService:
         except requests.RequestException as e:
             logging.exception('Error posting OData note to customer %s: %s', customer_id, str(e))
             return None
+
+    # Log to audit DB after successful post
+            from scripts.posted_comments_audit import log_posted_comment
+            log_posted_comment(
+                event_id=None,  # You may pass event_id if available
+                customer_id=customer_id,
+                customer_name=None,  # You may pass customer_name if available
+                author_name=author_name,
+                comment_text=note_text,
+                extra_json=None,  # You may pass extra context if available
+            )
 

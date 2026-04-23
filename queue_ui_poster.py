@@ -21,6 +21,7 @@ from config import Config
 from marketsharp_service import MarketSharpService
 from mapping_registry import load_mapping_env, load_mapping_file, merge_contact_mappings
 from pending_queue import PendingCommentQueue
+from scripts.posted_comments_audit import log_posted_comment
 
 
 @dataclass
@@ -740,7 +741,12 @@ def process_once(page, ui_cfg, queue):
         queue_id = item['id']
         customer_name = item['customer_name']
         comment_text = item['comment_text']
-        note_text = comment_text
+        author_name = item.get('author_name')
+        # Prepend author if present and not already in the text
+        if author_name and author_name.strip() and not comment_text.strip().startswith(f'[{author_name.strip()}]'):
+            note_text = f'[{author_name.strip()}] {comment_text.strip()}'
+        else:
+            note_text = comment_text
         retry_count = item.get('retry_count', 0)
 
         # Extract address info if present
@@ -779,6 +785,15 @@ def process_once(page, ui_cfg, queue):
                 try:
                     open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=variant)
                     queue.mark_posted(queue_id)
+                    # Log to audit DB
+                    log_posted_comment(
+                        event_id=item.get('event_id'),
+                        customer_id=item.get('customer_id'),
+                        customer_name=customer_name,
+                        author_name=author_name,
+                        comment_text=note_text,
+                        extra_json=item.get('payload_json'),
+                    )
                     logging.info('Posted queued item id=%s customer=%s using search="%s"', queue_id, customer_name, variant)
                     posted = True
                     break
@@ -808,6 +823,15 @@ def process_once(page, ui_cfg, queue):
                     try:
                         open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=addr)
                         queue.mark_posted(queue_id)
+                        # Log to audit DB
+                        log_posted_comment(
+                            event_id=item.get('event_id'),
+                            customer_id=item.get('customer_id'),
+                            customer_name=customer_name,
+                            author_name=author_name,
+                            comment_text=note_text,
+                            extra_json=item.get('payload_json'),
+                        )
                         logging.info('Posted queued item id=%s customer=%s using address-only search="%s"', queue_id, customer_name, addr)
                         posted = True
                         break

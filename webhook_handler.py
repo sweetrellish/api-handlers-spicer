@@ -1,6 +1,8 @@
 """Core business logic for mapping CompanyCam webhook comments into MarketSharp notes."""
 
 import logging
+import json
+import os
 import hashlib
 from datetime import datetime
 from companycam_service import CompanyCamService
@@ -10,6 +12,16 @@ from config import Config
 
 
 class WebhookHandler:
+    # Path to the user mapping file (edit as needed)
+    USER_MAPPING_FILE = os.getenv('COMPANYCAM_TO_MARKETSHARP_USER_MAP', 'companycam_to_marketsharp_user_map.json')
+
+    def _load_user_mapping(self):
+        try:
+            with open(self.USER_MAPPING_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.warning(f"Could not load user mapping file: {self.USER_MAPPING_FILE} ({e})")
+            return {}
     """Handles CompanyCam webhook events and syncs to MarketSharp"""
 
     def __init__(self):
@@ -64,7 +76,9 @@ class WebhookHandler:
         payload = event_data if isinstance(event_data, dict) else {'raw_event': event_data}
         payload = dict(payload)
 
-        spicer_meta = payload.get('_spicer') if isinstance(payload.get('_spicer'), dict) else {}
+        spicer_meta = payload.get('_spicer') 
+        if not isinstance(spicer_meta, dict):
+            spicer_meta = {}
         spicer_meta['project_id'] = str(project_id)
         if isinstance(project_address, dict) and project_address:
             spicer_meta['project_address'] = project_address
@@ -72,6 +86,8 @@ class WebhookHandler:
         return payload
 
     def process_comment_event(self, event_data):
+        # Load user mapping (CompanyCam name/email → MarketSharp username/ID)
+        user_mapping = self._load_user_mapping()
         """
         Process a CompanyCam comment event and post to MarketSharp
         
@@ -190,7 +206,9 @@ class WebhookHandler:
                 comment_obj.get('content'),
             ]
             comment_text = next((value for value in text_candidates if isinstance(value, str) and value.strip()), '')
-            author_name = (
+
+            # Extract CompanyCam user identifier (name or email)
+            cc_user_name = (
                 user_obj.get('name')
                 or author_obj.get('name')
                 or comment_data.get('user_name')
@@ -199,6 +217,27 @@ class WebhookHandler:
                 or payload_obj.get('creator_name')
                 or comment_obj.get('creator_name')
             )
+            cc_user_email = (
+                user_obj.get('email')
+                or author_obj.get('email')
+                or comment_data.get('user_email')
+                or comment_data.get('author_email')
+                or comment_data.get('creator_email')
+                or payload_obj.get('creator_email')
+                or comment_obj.get('creator_email')
+            )
+
+            # Try to map to MarketSharp user
+            ms_author = None
+            if cc_user_email and cc_user_email in user_mapping:
+                ms_author = user_mapping[cc_user_email]
+            elif cc_user_name and cc_user_name in user_mapping:
+                ms_author = user_mapping[cc_user_name]
+            else:
+                ms_author = None
+
+            # Fallback: use CompanyCam name if not mapped
+            author_name = ms_author or cc_user_name
 
             if not project_id or not comment_text:
                 logging.info(
@@ -320,3 +359,4 @@ class WebhookHandler:
                 'success': False,
                 'message': f'Error processing webhook event: {str(e)}'
             }
+

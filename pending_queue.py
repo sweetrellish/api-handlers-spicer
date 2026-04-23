@@ -6,8 +6,23 @@ import threading
 import time
 
 
+
 class PendingCommentQueue:
     """SQLite-backed queue of comments waiting for MarketSharp write support."""
+
+    def get_all_items(self):
+        """Return all queue items regardless of status, ordered by created_at."""
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, event_id, customer_name, comment_text, author_name, payload_json,
+                       status, last_error, created_at, updated_at
+                FROM pending_comments
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def __init__(self, db_path):
         self.db_path = db_path
