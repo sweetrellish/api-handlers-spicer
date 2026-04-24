@@ -10,8 +10,6 @@ DB_PATHS = [
     '/home/rellis/pending_comments.db',
     '/home/rellis/spicer/pending_comments.db',
     '/home/rellis/spicer/scripts/pending_comments.db',
-    '/home/rellis/spicer/src/pending_comments.db',
-    '/home/rellis/spicer/data/pending_comments.db'
 ]
 
 def check_db(path):

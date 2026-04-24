@@ -1,0 +1,99 @@
+"""This script reads pending_comments.db, attempts to correct the author_name for entries with "Ryan Ellis" """
+"""using the companycam_to_marketsharp_user_map.json mapping, and writes the corrected entries to unmatched_comments_corrected.jsonl. """
+"""It also prints a summary of the corrections made."""
+
+
+import os
+import sys
+import json
+import sqlite3
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
+MAPPING_FILE = os.path.join(ROOT_DIR,'spicer', 'data/companycam_to_marketsharp_user_map.json')
+DB_FILE = os.path.join(ROOT_DIR, 'spicer','data/pending_comments.db')
+
+def load_mapping():
+    try:
+        with open(MAPPING_FILE, 'r') as f:
+            mapping = json.load(f)
+        print(f"Loaded {len(mapping)} user mappings from {MAPPING_FILE}")
+        return mapping
+    except Exception as e:
+        print(f"[FATAL] Failed to load mapping file: {e}")
+        sys.exit(1)
+
+def get_candidates(conn):
+    cur = conn.execute(
+        """
+        SELECT id, event_id, customer_name, comment_text, author_name, payload_json
+        FROM pending_comments
+        WHERE status = 'posted'
+        """
+    )
+    return cur.fetchall()
+
+def extract_cc_author(payload_json):
+    try:
+        payload = json.loads(payload_json or '{}')
+        comment = payload.get('payload', {}).get('comment', {})
+        if not comment:
+            comment = payload.get('comment', {})
+        creator_name = comment.get('creator_name')
+        creator_email = comment.get('creator_email')
+        creator_id = comment.get('creator_id')
+        return creator_name, creator_email, creator_id
+    except Exception as e:
+        print(f"[WARN] Could not extract creator fields: {e}")
+        return None, None, None
+
+def main():
+    mapping = load_mapping()
+    if not os.path.exists(DB_FILE):
+        print(f"[FATAL] pending_comments.db not found at {DB_FILE}.")
+        sys.exit(1)
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    candidates = get_candidates(conn)
+    print(f"Found {len(candidates)} posted comments.\n")
+    updates = []
+    for row in candidates:
+        creator_name, creator_email, creator_id = extract_cc_author(row['payload_json'])
+        ms_user = None
+        # Try mapping by email, then id, then name
+        if creator_email and creator_email in mapping:
+            ms_user = mapping[creator_email]
+        elif creator_id and str(creator_id) in mapping:
+            ms_user = mapping[str(creator_id)]
+        elif creator_name and creator_name in mapping:
+            ms_user = mapping[creator_name]
+        if ms_user and row['author_name'] != ms_user:
+            print(f"[UPDATE] id={row['id']} event_id={row['event_id']} | '{row['author_name']}' -> '{ms_user}' (from '{creator_name}' id={creator_id} email={creator_email})")
+            updates.append((ms_user, row['id']))
+        elif not ms_user:
+            print(f"[SKIP]  id={row['id']} event_id={row['event_id']} | No mapping for '{creator_name}' (id: {creator_id}, email: {creator_email})")
+    print(f"\nTotal to update: {len(updates)}")
+    if not updates:
+        print("Nothing to update. Exiting.")
+        return
+    confirm = input("Proceed with updating the database? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("Aborted. No changes made.")
+        return
+    try:
+        with conn:
+            for ms_user, row_id in updates:
+                conn.execute(
+                    "UPDATE pending_comments SET author_name = ? WHERE id = ?",
+                    (ms_user, row_id)
+                )
+        print(f"Updated {len(updates)} rows in the database.")
+    except Exception as e:
+        print(f"[FATAL] Failed to update database: {e}")
+    finally:
+        conn.close()
+
+if __name__ == "__main__":
+    main()
+
+
