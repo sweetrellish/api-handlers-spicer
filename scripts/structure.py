@@ -38,11 +38,11 @@ CONFIG_FILES = [
 ]
 
 DATA_FILES = [
-    "companycam_to_marketsharp_user_map.json",
-    "marketsharp_contact_mappings.json",
-    "marketsharp_cookies.json",
-    "unmatched_comments.jsonl",
-    "unmatched_comments_corrected.jsonl"
+    "data/companycam_to_marketsharp_user_map.json",
+    "data/marketsharp_contact_mappings.json",
+    "data/marketsharp_cookies.json",
+    "data/unmatched_comments.jsonl",
+    "data/unmatched_comments_corrected.jsonl"
 ]
 
 # Add more as needed
