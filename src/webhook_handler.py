@@ -13,7 +13,7 @@ from config.config import Config
 
 class WebhookHandler:
     # Path to the user mapping file (edit as needed)
-    USER_MAPPING_FILE = os.getenv('COMPANYCAM_TO_MARKETSHARP_USER_MAP', 'companycam_to_marketsharp_user_map.json')
+    USER_MAPPING_FILE = os.getenv('COMPANYCAM_TO_MARKETSHARP_USER_MAP', 'data/companycam_to_marketsharp_user_map.json')
 
     def _load_user_mapping(self):
         try:

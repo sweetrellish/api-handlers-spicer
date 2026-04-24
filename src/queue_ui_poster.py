@@ -64,7 +64,7 @@ def build_ui_config():
     """Load UI automation selectors from environment variables."""
     contact_url_map_file = os.getenv(
         'MARKETSHARP_UI_CONTACT_URL_MAP_FILE',
-        'marketsharp_contact_mappings.json',
+        'data/marketsharp_contact_mappings.json',
     ).strip()
     file_mappings = load_mapping_file(contact_url_map_file)
     env_mappings = load_mapping_env(os.getenv('MARKETSHARP_UI_CONTACT_URL_MAP', ''))
@@ -78,7 +78,7 @@ def build_ui_config():
         poll_seconds=1,  # Set poll interval to 1 second for rapid queue cycling
         processing_timeout_seconds=int(os.getenv('QUEUE_PROCESSING_TIMEOUT_SECONDS', '300')),
         unmatched_retry_seconds=int(os.getenv('QUEUE_UNMATCHED_RETRY_SECONDS', '10')),
-        unmatched_dump_path=os.getenv('QUEUE_UNMATCHED_DUMP_PATH', 'unmatched_comments.jsonl').strip(),
+        unmatched_dump_path=os.getenv('QUEUE_UNMATCHED_DUMP_PATH', 'data/unmatched_comments.jsonl').strip(),
         search_input_selector=os.getenv('MARKETSHARP_UI_SEARCH_SELECTOR', '').strip(),
         first_result_selector=os.getenv('MARKETSHARP_UI_FIRST_RESULT_SELECTOR', '').strip(),
         notes_tab_selector=os.getenv('MARKETSHARP_UI_NOTES_TAB_SELECTOR', '').strip(),

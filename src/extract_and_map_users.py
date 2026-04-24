@@ -228,7 +228,7 @@ def main():
         print(f"Found {len(ms_users)} MarketSharp users.")
         # Map CC name to MS username using first initial + last name, case-insensitive
         mapping = match_cc_to_ms(cc_users, ms_users)
-        update_and_sort_mapping(mapping, "companycam_to_marketsharp_user_map.json")
+        update_and_sort_mapping(mapping, "data/companycam_to_marketsharp_user_map.json")
     finally:
         driver.quit()
 

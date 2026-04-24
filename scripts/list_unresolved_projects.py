@@ -21,7 +21,7 @@ def main():
     load_dotenv(override=True)
 
     mapping_file = REPO_ROOT / (
-        __import__('os').getenv('MARKETSHARP_UI_CONTACT_URL_MAP_FILE', 'marketsharp_contact_mappings.json').strip()
+        __import__('os').getenv('MARKETSHARP_UI_CONTACT_URL_MAP_FILE', 'data/marketsharp_contact_mappings.json').strip()
     )
     file_mappings = load_mapping_file(mapping_file)
     env_mappings = load_mapping_env(__import__('os').getenv('MARKETSHARP_UI_CONTACT_URL_MAP', ''))

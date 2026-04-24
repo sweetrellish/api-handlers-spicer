@@ -62,6 +62,8 @@ def update_imports_in_file(filepath):
             f"import config.{module}\\1",
             content
         )
+    # Update file path references for .json, .jsonl, .db files to use data/
+    content = re.sub(r"(['\"])([a-zA-Z0-9_\-]+\.(json|jsonl|db))(['\"])", r"\1data/\2\4", content)
     if content != original:
         with open(filepath, "w") as f:
             f.write(content)

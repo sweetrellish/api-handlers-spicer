@@ -1,7 +1,7 @@
 import sqlite3
 import sys
 
-DB_PATH = 'pending_comments.db'  # Change this if your DB file is named differently or in another location
+DB_PATH = 'data/pending_comments.db'  # Change this if your DB file is named differently or in another location
 
 
 def list_queue_items():

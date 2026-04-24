@@ -10,8 +10,8 @@ import sqlite3
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
-MAPPING_FILE = os.path.join(ROOT_DIR,'spicer', 'companycam_to_marketsharp_user_map.json')
-DB_FILE = os.path.join(ROOT_DIR, 'spicer','pending_comments.db')
+MAPPING_FILE = os.path.join(ROOT_DIR,'spicer', 'data/companycam_to_marketsharp_user_map.json')
+DB_FILE = os.path.join(ROOT_DIR, 'spicer','data/pending_comments.db')
 
 def load_mapping():
     try:

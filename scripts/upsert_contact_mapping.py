@@ -44,7 +44,7 @@ def main():
     parser.add_argument('--url', required=True, help='MarketSharp contact detail URL')
     parser.add_argument(
         '--file',
-        default=os.getenv('MARKETSHARP_UI_CONTACT_URL_MAP_FILE', 'marketsharp_contact_mappings.json').strip(),
+        default=os.getenv('MARKETSHARP_UI_CONTACT_URL_MAP_FILE', 'data/marketsharp_contact_mappings.json').strip(),
         help='Mapping file path relative to repo root or absolute path',
     )
     args = parser.parse_args()

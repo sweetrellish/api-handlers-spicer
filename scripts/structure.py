@@ -2,6 +2,20 @@ import os
 import shutil
 
 # Define where each type of file should go
+# Scripts that are not core modules to scripts/
+OPS_SCRIPTS = [
+    "correct_unmatched_authors.py",
+    "delete_queue_items_by_name.py",
+    "extract_and_map_users.py",
+    "move_files_to_structure.py",
+    "queue_ui_poster.py",
+    "requeue_unmatched.py",
+    "review_true_fail.py",
+    "test_queue_logic.py",
+    "test_user_mapping.py",
+    "true_fail_checker.py"    
+    "list_unresolved_projects.py"
+]
 SRC_MODULES = [
     "pending_queue.py",
     "mapping_registry.py",
@@ -10,16 +24,12 @@ SRC_MODULES = [
     "webhook_handler.py",
     "security.py",
     "posted_comments_audit.py",
-    "true_fail_checker.py",
     "queue_ui_poster.py",
     "extract_and_map_users.py",
-    "requeue_unmatched.py",
     "requeue_posted.py",
     "edit_unmatched_queue_item.py",
     "delete_queue_items_by_name.py",
     "upsert_contact_mapping.py",
-    "list_unresolved_projects.py",
-    "review_true_fail.py",
     "app.py"
 ]
 

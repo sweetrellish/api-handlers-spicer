@@ -8,7 +8,7 @@ import sqlite3
 import sys
 from datetime import datetime
 
-AUDIT_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'posted_comments_audit.db')
+AUDIT_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data/posted_comments_audit.db')
 
 def ensure_audit_table():
     conn = sqlite3.connect(AUDIT_DB)

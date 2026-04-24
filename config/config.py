@@ -44,8 +44,8 @@ class Config:
     MARKETSHARP_BASE_URL = os.getenv('MARKETSHARP_BASE_URL', '')
 
     # Idempotency persistence location.
-    IDEMPOTENCY_DB_PATH = os.getenv('IDEMPOTENCY_DB_PATH', 'cc_webhook_dedupe.db')
-    PENDING_QUEUE_DB_PATH = os.getenv('PENDING_QUEUE_DB_PATH', 'pending_comments.db')
+    IDEMPOTENCY_DB_PATH = os.getenv('IDEMPOTENCY_DB_PATH', 'data/cc_webhook_dedupe.db')
+    PENDING_QUEUE_DB_PATH = os.getenv('PENDING_QUEUE_DB_PATH', 'data/pending_comments.db')
 
 
 def validate_config():
