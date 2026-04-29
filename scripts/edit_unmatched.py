@@ -6,7 +6,7 @@ import sys
 import json
 import sqlite3
 
-DB_PATH = "data/pending_comments.db"  # Change if your DB is elsewhere
+DB_PATH = "../pending_comments.db"  # Change if your DB is elsewhere
 
 def list_unmatched(conn):
     cur = conn.cursor()

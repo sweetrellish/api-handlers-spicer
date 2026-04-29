@@ -1,7 +1,9 @@
 import sqlite3
 import sys
-
-DB_PATH = 'data/pending_comments.db'  # Change this if your DB file is named differently or in another location
+import os
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'pending_comments.db'))
+#DB_PATH=sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+#DB_PATH = 'pending_comments.db'  # Change this if your DB file is named differently or in another location
 
 
 def list_queue_items():

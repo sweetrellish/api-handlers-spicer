@@ -3,16 +3,19 @@
 
 import json
 import sys
+import os
 import sqlite3
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from config.config import Config
+from config import Config
 from src.mapping_registry import load_mapping_env, load_mapping_file, merge_contact_mappings
 from src.queue_ui_poster import _extract_project_id_from_payload
 

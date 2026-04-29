@@ -9,7 +9,7 @@ import re
 import json
 import csv
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '../logs')
 LOG_FILES = [
     os.path.join(LOG_DIR, 'worker.out.log'),
     os.path.join(LOG_DIR, 'worker.err.log'),

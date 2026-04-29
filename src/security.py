@@ -5,7 +5,7 @@ import sqlite3
 import threading
 import time
 
-from config.config import Config
+from config import Config
 
 
 class IdempotencyStore:

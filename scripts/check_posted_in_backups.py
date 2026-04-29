@@ -7,7 +7,6 @@ import sqlite3
 import os
 
 DB_PATHS = [
-    '/home/rellis/pending_comments.db',
     '/home/rellis/spicer/pending_comments.db',
     '/home/rellis/spicer/scripts/pending_comments.db',
     '/home/rellis/spicer/src/pending_comments.db',

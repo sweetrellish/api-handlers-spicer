@@ -1,0 +1,27 @@
+2026/04/29-11:28:00.073 15e71a Reusing MANIFEST /home/rellis/spicer/.marketsharp-profile-worker/Default/Session Storage/MANIFEST-000001
+2026/04/29-11:28:00.074 15e71a Recovering log #1782
+2026/04/29-11:28:00.074 15e71a Reusing old log /home/rellis/spicer/.marketsharp-profile-worker/Default/Session Storage/001782.log 
+2026/04/29-11:34:52.531 15e71b Level-0 table #1786: started
+2026/04/29-11:34:52.534 15e71b Level-0 table #1786: 15151 bytes OK
+2026/04/29-11:34:52.534 15e71b Delete type=0 #1782
+2026/04/29-11:42:07.326 15e71b Level-0 table #1788: started
+2026/04/29-11:42:07.328 15e71b Level-0 table #1788: 8309 bytes OK
+2026/04/29-11:42:07.329 15e71b Delete type=0 #1785
+2026/04/29-11:42:17.468 15e71b Level-0 table #1790: started
+2026/04/29-11:42:17.471 15e71b Level-0 table #1790: 11697 bytes OK
+2026/04/29-11:42:17.472 15e71b Delete type=0 #1787
+2026/04/29-11:42:17.472 15e71b Compacting 4@0 + 1@1 files
+2026/04/29-11:42:17.483 15e71b Generated table #1791@0: 3284 keys, 42403 bytes
+2026/04/29-11:42:17.483 15e71b Compacted 4@0 + 1@1 files => 42403 bytes
+2026/04/29-11:42:17.483 15e71b compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/29-11:42:17.484 15e71b Delete type=2 #1790
+2026/04/29-11:42:17.484 15e71b Delete type=2 #1783
+2026/04/29-11:42:17.484 15e71b Delete type=2 #1781
+2026/04/29-11:42:17.484 15e71b Delete type=2 #1788
+2026/04/29-11:42:17.484 15e71b Delete type=2 #1786
+2026/04/29-11:42:23.185 15e71b Level-0 table #1793: started
+2026/04/29-11:42:23.187 15e71b Level-0 table #1793: 7248 bytes OK
+2026/04/29-11:42:23.188 15e71b Delete type=0 #1789
+2026/04/29-11:42:33.688 15e71b Level-0 table #1795: started
+2026/04/29-11:42:33.690 15e71b Level-0 table #1795: 9385 bytes OK
+2026/04/29-11:42:33.691 15e71b Delete type=0 #1792

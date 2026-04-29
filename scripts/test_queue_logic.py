@@ -1,8 +1,12 @@
 """Test script for PendingCommentQueue and true_fail logic (local/dev use)."""
 
-
-from src.pending_queue import PendingCommentQueue
+import sys
 import os
+
+# Adds the parent directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+from pending_queue import PendingCommentQueue
 import time
 import random
 import sqlite3

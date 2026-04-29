@@ -28,7 +28,17 @@ def get_changed_files():
 
 
 def summarize_changes(files):
-    # Try to generate a commit message based on file diffs
+    # Try to generate a commit message based on file diffs, but prompt for a message regardless in case summary takes a lot of files or is not meaningful
+    if len(files) > 10:
+        print("[WARN] Too many files changed, skipping detailed summary.")
+        print("[INFO] Please provide a commit message describing the changes.")
+        # Prompt for input
+        user_msg = input("Enter commit message: ").strip()
+        if not user_msg:
+            print("[FATAL] Commit message is required. Aborting.")
+            sys.exit(1)
+        return user_msg
+    
     if not files:
         return "No changes to commit."
     summary = []

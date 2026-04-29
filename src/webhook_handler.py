@@ -8,7 +8,7 @@ from datetime import datetime
 from src.companycam_service import CompanyCamService
 from src.marketsharp_service import MarketSharpService
 from src.pending_queue import PendingCommentQueue
-from config.config import Config
+from config import Config
 
 
 class WebhookHandler:

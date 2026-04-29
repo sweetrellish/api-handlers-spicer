@@ -1,7 +1,7 @@
 """Test script for PendingCommentQueue and true_fail logic (local/dev use)."""
 
 
-from src.pending_queue import PendingCommentQueue
+from pending_queue import PendingCommentQueue
 import os
 import time
 import random

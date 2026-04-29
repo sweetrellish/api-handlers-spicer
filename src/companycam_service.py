@@ -17,6 +17,48 @@ class CompanyCamService:
             'Content-Type': 'application/json'
         }
 
+    def list_recent_projects(self, limit=50):
+        """Fetch the most recently active projects (default: 50)."""
+        try:
+            params = {'order': 'desc', 'sort': 'updated_at', 'per_page': limit}
+            response = requests.get(
+                f'{self.base_url}/v2/projects',
+                headers=self.headers,
+                params=params,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json() if response.json() else []
+        except requests.RequestException as e:
+            logging.exception('Error fetching recent CompanyCam projects: %s', str(e))
+            return []
+
+    def list_project_comments(self, project_id):
+        """Fetch all comments for a given project."""
+        try:
+            comments = []
+            page = 1
+            while True:
+                params = {'page': page, 'per_page': 100}
+                response = requests.get(
+                    f'{self.base_url}/v2/projects/{project_id}/comments',
+                    headers=self.headers,
+                    params=params,
+                    timeout=self.timeout
+                )
+                response.raise_for_status()
+                data = response.json() or []
+                if not data:
+                    break
+                comments.extend(data)
+                if len(data) < 100:
+                    break
+                page += 1
+            return comments
+        except requests.RequestException as e:
+            logging.exception('Error fetching comments for project %s: %s', project_id, str(e))
+            return []
+
     def get_project_by_id(self, project_id):
         """Fetch CompanyCam project details by project id."""
         try:
@@ -58,3 +100,4 @@ class CompanyCamService:
         except requests.RequestException as e:
             logging.exception('Error fetching CompanyCam photo %s: %s', photo_id, str(e))
             return None
+

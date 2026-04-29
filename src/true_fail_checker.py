@@ -7,7 +7,7 @@ import os
 import sys
 import logging
 import logging.handlers
-from src.pending_queue import PendingCommentQueue
+from pending_queue import PendingCommentQueue
 import datetime
 
 TEST_DB = '/tmp/test_pending_queue.db'

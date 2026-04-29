@@ -1,0 +1,3 @@
+2026/04/29-10:12:12.806 15b479 Reusing MANIFEST /home/rellis/spicer/scripts/.marketsharp-profile-worker/Default/Local Storage/leveldb/MANIFEST-000001
+2026/04/29-10:12:12.814 15b479 Recovering log #3
+2026/04/29-10:12:12.814 15b479 Reusing old log /home/rellis/spicer/scripts/.marketsharp-profile-worker/Default/Local Storage/leveldb/000003.log 

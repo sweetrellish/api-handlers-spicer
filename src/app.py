@@ -3,7 +3,7 @@
 from flask import Flask, request, jsonify
 import logging
 from src.webhook_handler import WebhookHandler
-from config.config import Config
+from src.config import Config
 from src.security import IdempotencyStore, extract_event_id, verify_webhook_auth
 
 app = Flask(__name__)

@@ -1,7 +1,7 @@
 """Manually move unmatched queue rows back to pending for immediate retry."""
 
-from src.pending_queue import PendingCommentQueue
-from config.config import Config
+from pending_queue import PendingCommentQueue
+from config import Config
 
 
 def main():

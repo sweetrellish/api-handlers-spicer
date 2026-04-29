@@ -12,10 +12,16 @@ Features:
 """
 
 import sys
+import os
+from posted_comments_audit import log_posted_comment
+
+# Adds the parent directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import json
-from src.pending_queue import PendingCommentQueue
-from scripts.posted_comments_audit import log_posted_comment
-from config.config import Config
+from pending_queue import PendingCommentQueue
+#from scripts.posted_comments_audit import log_posted_comment
+from config import Config
 
 def print_item_details(item):
     print("\n--- Queue Item ---")

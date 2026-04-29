@@ -3,7 +3,7 @@
 import sqlite3
 import os
 
-DB_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'spicer', 'data/pending_comments.db')
+DB_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data/pending_comments.db')
 
 def main():
     if not os.path.exists(DB_FILE):

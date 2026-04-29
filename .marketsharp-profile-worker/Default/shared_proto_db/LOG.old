@@ -1,3 +1,3 @@
-2026/04/22-20:26:20.577 6288c Reusing MANIFEST /home/rellis/spicer/.marketsharp-profile-worker/Default/shared_proto_db/MANIFEST-000001
-2026/04/22-20:26:20.577 6288c Recovering log #3
-2026/04/22-20:26:20.577 6288c Reusing old log /home/rellis/spicer/.marketsharp-profile-worker/Default/shared_proto_db/000003.log 
+2026/04/29-11:27:43.713 15e698 Reusing MANIFEST /home/rellis/spicer/.marketsharp-profile-worker/Default/shared_proto_db/MANIFEST-000001
+2026/04/29-11:27:43.713 15e698 Recovering log #3
+2026/04/29-11:27:43.714 15e698 Reusing old log /home/rellis/spicer/.marketsharp-profile-worker/Default/shared_proto_db/000003.log 
