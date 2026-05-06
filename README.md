@@ -1,15 +1,19 @@
 # 🖥️⚡️👾⚡️API Handler⚡️👾⚡️🖥️
-![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg) :
+![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
 ![License](https://img.shields.io/github/license/sweetrellish/api-handlers-spicer)
+
 ### API software developed for the purpose of integrating information across multiple platforms as needed for the desired organization.
 #### CompanyCam to MarketSharp Comment Sync
+
 ## Prerequisites
 - Python 3.8+ (recommended)
 - [pip](https://pip.pypa.io/)
 - [Playwright](https://playwright.dev/python/), if using the UI poster worker
 - OS-specific dependencies (e.g., Chromium, see Playwright install docs)
+
 This application handles webhook events from CompanyCam and automatically posts comments to the corresponding customer account in MarketSharp.
+
 ## Table of Contents
 - [Architecture Overview](#architecture-overview)
 - [Setup](#setup)
@@ -25,6 +29,9 @@ This application handles webhook events from CompanyCam and automatically posts 
 - [Operations Runbook](#operations-runbook)
 - [Troubleshooting](#troubleshooting)
 - [Error Handling](#error-handling)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Architecture Overview
 
 - CompanyCam delivers `comment.*` events to `/webhook/companycam`
@@ -34,14 +41,15 @@ This application handles webhook events from CompanyCam and automatically posts 
 - If MarketSharp is read-only (OData mode), comments are stored in a local pending queue
 - If MarketSharp write API is enabled (REST mode), comment text is posted as a customer note
 
-| `MARKETSHARP_MODE`        | Description                                | Behavior                 |
-|-------------------------- |--------------------------------------------|--------------------------|
-| `auto` (default)          | Detects best mode                          | Automatic selection      |
-| `rest_write`              | Uses MarketSharp REST write API            | Posts notes in real-time |
-| `odata_readonly`          | OData only, cannot write directly          | Queues comments locally  |
-| `odata_write`             | Writes via OData `Notes` entity            | Posts where possible     |
+| `MARKETSHARP_MODE` | Description | Behavior |
+|---|---|---|
+| `auto` (default) | Detects best mode | Automatic selection |
+| `rest_write` | Uses MarketSharp REST write API | Posts notes in real-time |
+| `odata_readonly` | OData only, cannot write directly | Queues comments locally |
+| `odata_write` | Writes via OData `Notes` entity | Posts where possible |
 
 ---
+
 ## API Flowchart
 ```mermaid
 flowchart TD
@@ -62,9 +70,8 @@ flowchart TD
     S([POST REST]):::boldcyan
     Y([200 OK]):::boldgreen
 
-    %% Routing
     A --> B
-    B -- "Invalid"--> Z
+    B -- "Invalid" --> Z
     B -- "Valid" --> C
     C -- "Yes" --> Z2
     C -- "No" --> D --> E --> F --> G --> H
@@ -73,46 +80,28 @@ flowchart TD
     I -- "OData Read-Only" --> Q2 --> Y
     I -- "OData Write" --> R --> Y
     I -- "REST Write" --> S --> Y
-%% Place these classDefs at the bottom of your Mermaid diagram.
 
-classDef yellow fill:#fabd2f,stroke:#b57614,stroke-width:2px,color:#282828;
-classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
-classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
-classDef darkred fill:#cc241d,stroke:#9d0006,stroke-width:2px,color:#fff;
-classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
-classDef lime fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
-classDef aqua fill:#8ec07c,stroke:#076678,stroke-width:2px,color:#282828;
-classDef cyan fill:#17aabb,stroke:#076678,stroke-width:2px,color:#282828;
-classDef blue fill:#83a598,stroke:#458588,stroke-width:2px,color:#282828;
-classDef brightblue fill:#458588,stroke:#083553,stroke-width:2px,color:#fff;
-classDef purple fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
-classDef magenta fill:#b16286,stroke:#8f3f71,stroke-width:2px,color:#fff;
-classDef violet fill:#b4befe,stroke:#585b70,stroke-width:2px,color:#282828;
-classDef fuschia fill:#fb74d6,stroke:#ad267d,stroke-width:2px,color:#282828;
-classDef black fill:#282828,stroke:#3c3836,stroke-width:2px,color:#eee;
-classDef gray fill:#a89984,stroke:#7c6f64,stroke-width:2px,color:#282828;
-classDef silver fill:#f2e5bc,stroke:#bdae93,stroke-width:2px,color:#282828;
-classDef white fill:#fbf1c7,stroke:#ebdbb2,stroke-width:2px,color:#282828;
-
-%% Fun/Starship-inspired
-classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
-classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
-classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
-classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
-classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
-
-    %% Gruvbox vibrant style
     classDef yellow fill:#fabd2f,stroke:#d79921,stroke-width:2px,color:#282828;
     classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
     classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
+    classDef darkred fill:#cc241d,stroke:#9d0006,stroke-width:2px,color:#fff;
     classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
-    classDef aqua  fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
-    classDef blue  fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
+    classDef lime fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
+    classDef aqua fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
+    classDef cyan fill:#17aabb,stroke:#076678,stroke-width:2px,color:#282828;
+    classDef blue fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
+    classDef brightblue fill:#458588,stroke:#083553,stroke-width:2px,color:#fff;
     classDef purple fill:#b16286,stroke:#7c3a63,stroke-width:2px,color:#282828;
     classDef magenta fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
-    classDef lime  fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
-
+    classDef black fill:#282828,stroke:#3c3836,stroke-width:2px,color:#eee;
+    classDef white fill:#fbf1c7,stroke:#ebdbb2,stroke-width:2px,color:#282828;
+    classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
+    classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
+    classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
+    classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
+    classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
 ```
+
 ## Process Sequencing
 ```mermaid
 sequenceDiagram
@@ -144,9 +133,9 @@ sequenceDiagram
             API-->>CC: 200 OK
         end
     end
-
 ```
-## Class Diagram 
+
+## Class Diagram
 ```mermaid
 classDiagram
     class App.py {
@@ -174,28 +163,29 @@ classDiagram
     App.py --|> MarketSharpAPI : Methods
     App.py --|> QueueManager : Methods
 
-    class App.py::: boldpurple
-    class CompanyCamWebhookHandler::: boldorange
-    class MarketSharpAPI::: boldcyan
-    class QueueManager::: boldgreen
+    class App.py:::boldpurple
+    class CompanyCamWebhookHandler:::boldorange
+    class MarketSharpAPI:::boldcyan
+    class QueueManager:::boldgreen
 
-    %% Gruvbox vibrant style
     classDef yellow fill:#fabd2f,stroke:#d79921,stroke-width:2px,color:#282828;
     classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
     classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
     classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
-    classDef aqua  fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
-    classDef blue  fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
+    classDef aqua fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
+    classDef blue fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
     classDef purple fill:#b16286,stroke:#7c3a63,stroke-width:2px,color:#282828;
     classDef magenta fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
-    classDef lime  fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
+    classDef lime fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
     classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
     classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
     classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
     classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
     classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
 ```
+
 ## Setup
+
 ## Quick Start
 
 ```bash
@@ -205,6 +195,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # Fill in your secrets in .env
 python app.py
+```
+
 ### 1. Install Dependencies
 
 ```bash
@@ -246,14 +238,14 @@ The application starts on `http://localhost:5001` by default.
 ## How It Works
 
 1. **CompanyCam sends a webhook** to `http://your-domain.com/webhook/companycam` with event type `comment.*`
-1. **The handler extracts**:
+2. **The handler extracts**:
    - Comment text
    - Project ID
    - Author name (optional)
-1. **Looks up the project** in CompanyCam to get the customer name
-1. **Searches MarketSharp** for a customer with the same name.
-1. Uses CompanyCam project address as a tie-breaker when available to reduce clerical name mismatches (for example, single-name vs multi-name household records).
-1. Either posts or queues the comment.
+3. **Looks up the project** in CompanyCam to get the customer name
+4. **Searches MarketSharp** for a customer with the same name.
+5. Uses CompanyCam project address as a tie-breaker when available to reduce clerical name mismatches (for example, single-name vs multi-name household records).
+6. Either posts or queues the comment.
 
 In `rest_write` mode, the integration posts a note to the MarketSharp customer account.
 
@@ -272,7 +264,7 @@ pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
-1. Set the UI worker variables in `.env`:
+2. Set the UI worker variables in `.env`:
 
 - `MARKETSHARP_UI_BASE_URL`: URL where the MarketSharp app loads after login
 - `MARKETSHARP_UI_USER_DATA_DIR`: Local browser profile directory to keep your session
@@ -286,7 +278,7 @@ python -m playwright install chromium
 - `MARKETSHARP_UI_CONTACT_URL_MAP_FILE` (optional): JSON file containing `project:<CompanyCam project id>` to MarketSharp contact URLs
 - `MARKETSHARP_UI_CONTACT_URL_MAP` (optional): JSON overrides layered on top of the file-backed mappings
 
-1. Run the worker in a separate terminal:
+3. Run the worker in a separate terminal:
 
 ```bash
 python queue_ui_poster.py
@@ -557,7 +549,7 @@ server {
 curl -sS http://127.0.0.1:5001/health
 ```
 
-1. Verify webhook exists in CompanyCam:
+2. Verify webhook exists in CompanyCam:
 
 ```bash
 set -a; source .env; set +a
@@ -565,31 +557,31 @@ curl --request GET \
   --url https://api.companycam.com/v2/webhooks \
   --header "accept: application/json" \
   --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
+```
 
-1. Retry unmatched rows immediately (after creating missing customer in MarketSharp):
+3. Retry unmatched rows immediately (after creating missing customer in MarketSharp):
 
 ```bash
 python requeue_unmatched.py
 ```
 
 This moves all `unmatched` rows back to `pending` so `queue_ui_poster.py` attempts them on the next poll.
-```
 
-1. Tail logs and create a test comment in CompanyCam:
+4. Tail logs and create a test comment in CompanyCam:
 
 ```bash
 journalctl -u company.service -f
 ```
 
-1. If running `odata_readonly`, confirm queued rows are being captured:
+5. If running `odata_readonly`, confirm queued rows are being captured:
 
 ```bash
 sqlite3 pending_comments.db "select id,event_id,customer_name,status,created_at from pending_comments order by id desc limit 20;"
 ```
 
-1. If running `rest_write`, confirm note appears in matching MarketSharp customer record.
+6. If running `rest_write`, confirm note appears in matching MarketSharp customer record.
 
-1. If using the UI worker, verify posted queue rows:
+7. If using the UI worker, verify posted queue rows:
 
 ```bash
 sqlite3 pending_comments.db "select id,status,last_error,updated_at from pending_comments order by id desc limit 20;"
@@ -617,17 +609,12 @@ All errors are logged to stdout for debugging.
 
 ---
 
-### 8. **Contribution & Issues Section**
-
-Encourage external contributors and feedback.
-
-```markdown
 ## Contributing
 
-Pull requests are welcome! Please open [issues](https://github.com/sweetrellish/api-handlers-spicer
-/issues) for suggestions or bug reports.
-```
+Pull requests are welcome! Please open [issues](https://github.com/sweetrellish/api-handlers-spicer/issues) for suggestions or bug reports.
+
 ---
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
