@@ -1,22 +1,26 @@
-# 🖥️⚡️👾⚡️API Handler⚡️👾⚡️🖥️
+# CompanyCam → MarketSharp Comment Sync
+
 ![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg)
 ![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
 ![License](https://img.shields.io/github/license/sweetrellish/api-handlers-spicer)
 
-### API software developed for the purpose of integrating information across multiple platforms as needed for the desired organization.
-#### CompanyCam to MarketSharp Comment Sync
+Webhook-driven integration that receives CompanyCam `comment.*` events and syncs them to the matching customer record in MarketSharp.
+
+This service is designed for small-footprint deployments and supports multiple write paths depending on what MarketSharp access is available in your environment:
+- direct REST note creation when API write access is enabled
+- OData-backed note writes where supported
+- local queueing plus optional UI-worker replay when MarketSharp must be driven through the browser
 
 ## Prerequisites
 - Python 3.8+ (recommended)
 - [pip](https://pip.pypa.io/)
 - [Playwright](https://playwright.dev/python/), if using the UI poster worker
-- OS-specific dependencies (e.g., Chromium, see Playwright install docs)
-
-This application handles webhook events from CompanyCam and automatically posts comments to the corresponding customer account in MarketSharp.
+- OS-specific dependencies (for example Chromium system dependencies; see Playwright install docs)
 
 ## Table of Contents
 - [Architecture Overview](#architecture-overview)
-- [Setup](#setup)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
 - [How It Works](#how-it-works)
 - [Queue UI Poster Worker](#queue-ui-poster-worker-logged-in-browser-bridge)
 - [Contact Mapping Workflow](#contact-mapping-workflow)
@@ -35,16 +39,16 @@ This application handles webhook events from CompanyCam and automatically posts 
 ## Architecture Overview
 
 - CompanyCam delivers `comment.*` events to `/webhook/companycam`
-- The service validates webhook authenticity (token or signature)
+- The service validates webhook authenticity using the shared secret/token you configure for the webhook
 - Duplicate deliveries are ignored via a local SQLite dedupe store
-- Matching customer is resolved by name in MarketSharp
-- If MarketSharp is read-only (OData mode), comments are stored in a local pending queue
-- If MarketSharp write API is enabled (REST mode), comment text is posted as a customer note
+- The matching customer is resolved by name in MarketSharp
+- If MarketSharp is read-only, comments are stored in a local pending queue
+- If a MarketSharp write path is available, comment text is posted as a customer note
 
 | `MARKETSHARP_MODE` | Description | Behavior |
 |---|---|---|
 | `auto` (default) | Detects best mode | Automatic selection |
-| `rest_write` | Uses MarketSharp REST write API | Posts notes in real-time |
+| `rest_write` | Uses MarketSharp REST write API | Posts notes in real time |
 | `odata_readonly` | OData only, cannot write directly | Queues comments locally |
 | `odata_write` | Writes via OData `Notes` entity | Posts where possible |
 
@@ -184,8 +188,6 @@ classDiagram
     classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
 ```
 
-## Setup
-
 ## Quick Start
 
 ```bash
@@ -196,6 +198,10 @@ cp .env.example .env
 # Fill in your secrets in .env
 python app.py
 ```
+
+The application starts on `http://localhost:5001` by default.
+
+## Configuration
 
 ### 1. Install Dependencies
 
@@ -214,14 +220,14 @@ cp .env.example .env
 Edit `.env` with your actual credentials:
 
 - `COMPANYCAM_WEBHOOK_TOKEN`: Your CompanyCam access token
-- `COMPANYCAM_WEBHOOK_SECRET`: Shared secret for webhook verification
+- `COMPANYCAM_WEBHOOK_SECRET`: Shared secret used to validate webhook authenticity
 - `MARKETSHARP_MODE`: `auto` (default), `odata_readonly`, `odata_write`, or `rest_write`
-- `MARKETSHARP_COMPANY_ID`: Company ID from MarketSharp API Maintenance page
-- `MARKETSHARP_USER_KEY`: User key from MarketSharp API Maintenance page
-- `MARKETSHARP_SECRET_KEY`: Secret key from MarketSharp API Maintenance page
+- `MARKETSHARP_COMPANY_ID`: Company ID from the MarketSharp API Maintenance page
+- `MARKETSHARP_USER_KEY`: User key from the MarketSharp API Maintenance page
+- `MARKETSHARP_SECRET_KEY`: Secret key from the MarketSharp API Maintenance page
 - `MARKETSHARP_ODATA_URL`: OData endpoint (default `https://api4.marketsharpm.com/WcfDataService.svc`)
-- `MARKETSHARP_API_KEY`: Only required when `MARKETSHARP_MODE=rest_write`
-- `MARKETSHARP_BASE_URL`: Only required when `MARKETSHARP_MODE=rest_write`
+- `MARKETSHARP_API_KEY`: Required when `MARKETSHARP_MODE=rest_write`
+- `MARKETSHARP_BASE_URL`: Required when `MARKETSHARP_MODE=rest_write`
 - `IDEMPOTENCY_DB_PATH`: SQLite file used to prevent duplicate webhook processing
 - `PENDING_QUEUE_DB_PATH`: SQLite queue file used when comments cannot be written yet
 - `MARKETSHARP_UI_*`: Optional selectors and browser settings used by the queue UI poster worker
@@ -233,19 +239,14 @@ Edit `.env` with your actual credentials:
 python app.py
 ```
 
-The application starts on `http://localhost:5001` by default.
-
 ## How It Works
 
-1. **CompanyCam sends a webhook** to `http://your-domain.com/webhook/companycam` with event type `comment.*`
-2. **The handler extracts**:
-   - Comment text
-   - Project ID
-   - Author name (optional)
-3. **Looks up the project** in CompanyCam to get the customer name
-4. **Searches MarketSharp** for a customer with the same name.
-5. Uses CompanyCam project address as a tie-breaker when available to reduce clerical name mismatches (for example, single-name vs multi-name household records).
-6. Either posts or queues the comment.
+1. **CompanyCam sends a webhook** to `http://your-domain.com/webhook/companycam` with event type `comment.*`.
+2. **The handler extracts** the comment text, project ID, and optional author name.
+3. **The project is looked up** in CompanyCam to determine the customer name.
+4. **MarketSharp is searched** for a customer with the same name.
+5. **The project address is used as a tie-breaker** when available to reduce clerical name mismatches.
+6. **The comment is either posted immediately or queued** depending on the configured write mode.
 
 In `rest_write` mode, the integration posts a note to the MarketSharp customer account.
 
@@ -318,7 +319,8 @@ The worker loads mappings from the file first and then applies any JSON mappings
 - Webhook requests are verified using `COMPANYCAM_WEBHOOK_SECRET`
 - Duplicate events are ignored using an idempotency SQLite store
 - Unauthorized webhook requests return `401`
-- Retry-safe behavior returns HTTP `200` for duplicates to stop repeat retries
+- Duplicate deliveries return HTTP `200` to stop retry loops safely
+- Secrets should be stored only in `.env` on the target machine and never committed
 
 When creating the webhook, include the same shared secret in the payload `token` field.
 
@@ -340,20 +342,34 @@ Receives webhook events from CompanyCam. Expected payload:
 }
 ```
 
+Typical responses:
+- `200 OK`: webhook accepted, duplicate ignored, or comment queued/posted successfully
+- `401 Unauthorized`: webhook secret/token validation failed
+- `400 Bad Request`: payload was malformed or could not be processed
+- `500 Internal Server Error`: unexpected application error
+
 ### `GET /health`
 
-Health check endpoint to verify the service is running.
+Health check endpoint used to verify the service is running.
+
+Example:
+
+```bash
+curl -sS http://127.0.0.1:5001/health
+```
 
 ### `POST /test`
 
-Test endpoint to verify the webhook handler is working correctly with a sample comment event.
+Test endpoint used to verify the handler path with a sample comment event.
+
+If you expose this outside local development, place it behind your normal network controls and deployment safeguards.
 
 ## Deployment
 
 ### Using Gunicorn (Production)
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+gunicorn -w 4 -b 0.0.0.0:5001 app:app
 ```
 
 ### Using Docker
@@ -363,8 +379,10 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 docker build -t companycam-marketsharp-sync .
 
 # Run
-docker run -p 5000:5000 --env-file .env companycam-marketsharp-sync
+docker run -p 5001:5001 --env-file .env companycam-marketsharp-sync
 ```
+
+Use port `5001` consistently for local containers, reverse proxies, and service managers unless you intentionally override it.
 
 ## CompanyCam Webhook Configuration
 
@@ -376,7 +394,7 @@ In CompanyCam, configure your webhook to:
 
 ### Terminal-Only Setup (cURL)
 
-Use these commands to create/list webhooks without using the UI:
+Use these commands to create or inspect webhooks without using the UI:
 
 ```bash
 set -a; source .env; set +a
@@ -405,10 +423,10 @@ curl --request DELETE \
 
 ## Home Server Deployment Notes
 
-- Keep `.env` only on the server, never commit it.
+- Keep `.env` only on the server; never commit it.
 - If using `rsync`, exclude `.env` and include `.env.example`.
-- Run under a process manager (`systemd`, `supervisord`, or `pm2`) so webhook handling survives reboots.
-- Place nginx or Caddy in front for TLS termination and reverse proxy to the Flask/Gunicorn port.
+- Run under a process manager such as `systemd`, `supervisord`, or `pm2` so webhook handling survives reboots.
+- Place nginx or Caddy in front for TLS termination and reverse proxy to the Flask/Gunicorn port on `5001`.
 
 ### One-Command Deploy Script (server_name)
 
@@ -435,7 +453,7 @@ Notes:
 
 ## macOS Production Setup (Recommended)
 
-This repo now includes launch scripts and `launchd` service definitions so the webhook and UI worker survive terminal closes and machine reboots.
+This repo includes launch scripts and `launchd` service definitions so the webhook and UI worker survive terminal closes and machine reboots.
 
 ### 1. Run webhook with Gunicorn
 
@@ -490,7 +508,7 @@ Then copy `deploy/cloudflared/config.example.yml` to your local Cloudflare confi
 cloudflared tunnel run company-webhook
 ```
 
-After this, set CompanyCam webhook URL to:
+After this, set the CompanyCam webhook URL to:
 
 `https://webhook.yourdomain.com/webhook/companycam`
 
@@ -543,13 +561,15 @@ server {
 
 ## Operations Runbook
 
+### Health checks
+
 1. Confirm service health:
 
 ```bash
 curl -sS http://127.0.0.1:5001/health
 ```
 
-2. Verify webhook exists in CompanyCam:
+2. Verify the webhook exists in CompanyCam:
 
 ```bash
 set -a; source .env; set +a
@@ -559,7 +579,9 @@ curl --request GET \
   --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
 ```
 
-3. Retry unmatched rows immediately (after creating missing customer in MarketSharp):
+### Queue recovery
+
+3. Retry unmatched rows immediately after creating the missing customer in MarketSharp:
 
 ```bash
 python requeue_unmatched.py
@@ -567,35 +589,38 @@ python requeue_unmatched.py
 
 This moves all `unmatched` rows back to `pending` so `queue_ui_poster.py` attempts them on the next poll.
 
-4. Tail logs and create a test comment in CompanyCam:
-
-```bash
-journalctl -u company.service -f
-```
-
-5. If running `odata_readonly`, confirm queued rows are being captured:
+4. If running `odata_readonly`, confirm queued rows are being captured:
 
 ```bash
 sqlite3 pending_comments.db "select id,event_id,customer_name,status,created_at from pending_comments order by id desc limit 20;"
 ```
 
-6. If running `rest_write`, confirm note appears in matching MarketSharp customer record.
-
-7. If using the UI worker, verify posted queue rows:
+5. If using the UI worker, verify posted queue rows:
 
 ```bash
 sqlite3 pending_comments.db "select id,status,last_error,updated_at from pending_comments order by id desc limit 20;"
 ```
 
+### Logging and verification
+
+6. Tail logs and create a test comment in CompanyCam:
+
+```bash
+journalctl -u company.service -f
+```
+
+7. If running `rest_write`, confirm the note appears in the matching MarketSharp customer record.
+
 ## Troubleshooting
 
-- Check the logs for error messages
-- Use the `/test` endpoint to verify the service is working
-- Ensure API keys are valid and have the necessary permissions
-- Verify customer names are close enough to match (normalization/fuzzy fallback is applied)
-- In `odata_readonly` mode, queued comments are expected until write access is enabled
-- Check firewall/network settings if webhook delivery fails
-- Ensure tunnel/process manager is running if endpoint intermittently fails
+- Check application logs first for webhook validation, dedupe, queue, or posting errors.
+- Use the `/test` endpoint to verify the handler path is functioning.
+- Ensure API keys are valid and have the necessary permissions.
+- Verify customer names are close enough to match; normalization and fuzzy fallback are applied.
+- In `odata_readonly` mode, queued comments are expected until write access is enabled.
+- Check firewall, reverse proxy, and tunnel settings if webhook delivery fails.
+- Ensure your process manager is running if the endpoint intermittently fails.
+- If Docker is used, verify both the container listener and host port mapping are set to `5001`.
 
 ## Error Handling
 
@@ -603,18 +628,25 @@ The application logs errors and returns appropriate HTTP status codes:
 
 - `200`: Webhook processed successfully
 - `400`: Bad request or processing failed
+- `401`: Unauthorized webhook request
 - `500`: Internal server error
 
 All errors are logged to stdout for debugging.
 
----
-
 ## Contributing
 
-Pull requests are welcome! Please open [issues](https://github.com/sweetrellish/api-handlers-spicer/issues) for suggestions or bug reports.
+Pull requests are welcome. Please open an [issue](https://github.com/sweetrellish/api-handlers-spicer/issues) first for bug reports, ideas, or larger changes so implementation details can be discussed before work begins.
 
----
+For local development:
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+python app.py
+```
+
+If you add or change integration behavior, update the README and any related operational scripts in the same change when possible.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
