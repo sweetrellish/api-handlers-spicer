@@ -5,15 +5,15 @@ import json
 import os
 import hashlib
 from datetime import datetime
-from src.companycam_service import CompanyCamService
-from src.marketsharp_service import MarketSharpService
-from src.pending_queue import PendingCommentQueue
+from companycam_service import CompanyCamService
+from marketsharp_service import MarketSharpService
+from pending_queue import PendingCommentQueue
 from config import Config
 
 
 class WebhookHandler:
     # Path to the user mapping file (edit as needed)
-    USER_MAPPING_FILE = os.getenv('COMPANYCAM_TO_MARKETSHARP_USER_MAP', 'data/companycam_to_marketsharp_user_map.json')
+    USER_MAPPING_FILE = os.getenv('COMPANYCAM_TO_MARKETSHARP_USER_MAP', 'companycam_to_marketsharp_user_map.json')
 
     def _load_user_mapping(self):
         try:
@@ -43,11 +43,16 @@ class WebhookHandler:
             nested_address.get('street')
             or nested_address.get('line1')
             or nested_address.get('address1')
-            or project.get('address')
+            or nested_address.get('street_address_1')
+            or nested_address.get('streetAddress1')
             or project.get('address1')
             or project.get('street')
             or ''
         )
+        # Defensive: if street is somehow not a string (e.g. a nested dict leaked in),
+        # discard it rather than stringifying the whole dict.
+        if not isinstance(street, str):
+            street = ''
         city = nested_address.get('city') or project.get('city') or ''
         state = nested_address.get('state') or nested_address.get('stateCode') or project.get('state') or project.get('stateCode') or ''
         postal = (

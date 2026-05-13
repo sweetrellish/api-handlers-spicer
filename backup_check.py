@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+"""
+This script will check the for the existence of database "pending_comment.db" backups 
+"""
 import os
 import glob
 

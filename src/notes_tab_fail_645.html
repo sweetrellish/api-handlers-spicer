@@ -1,0 +1,2682 @@
+<!DOCTYPE html><html class="dxChrome dxWindowsPlatform dxWebKitFamily dxBrowserVersion-136"><head id="ctl00_ctl00_headTag"><link rel="stylesheet" type="text/css" href="/DXR.axd?r=1_74,1_68,1_73,1_207,1_209,1_206-rHQiu"><link href="../css/pop-upInfo.css" rel="stylesheet"><title>
+	Contact Record (MarketSharp)
+</title>
+<link href="css/main_v35.css" rel="stylesheet" type="text/css"><link href="css/navigation_v3.css" rel="stylesheet" type="text/css"><link href="css/global_search_v1.css" rel="stylesheet" type="text/css"><link href="css/texting_conversations_v6.css?v=3" rel="stylesheet" type="text/css"><link href="css/jquery.colorpicker.css" type="text/css"><link href="css/jquery.layout.css" type="text/css"><link rel="shortcut icon" href="images/favicon2.ico"><link href="css/mulitiselect.filter.css" rel="stylesheet" type="text/css"><link href="css/jquery.multiselect_v1.css" rel="stylesheet" type="text/css"><link href="css/noty.css" rel="stylesheet" type="text/css"><link href="css/introjs.css" rel="stylesheet">
+
+<link href="/css/smoothness/jquery-ui.smoothness.css" rel="stylesheet" type="text/css">
+<link href="/css/jquery-toasts.css" rel="stylesheet" type="text/css">
+
+
+    <script type="text/javascript" async="" src="https://cdn.heapanalytics.com/js/heap-390411679.js"></script><script type="text/javascript" async="" src="https://cdn.jsdelivr.net/gh/Evercommerce/ecmarketingpublic@main/ecp-latest.min.js"></script><script src="/scripts/jquery-3.7.1.min.js" type="text/javascript"></script>
+    <!-- jquery-migrate for development environments. This is unminified and logs warnings to the browser console. -->
+    <!-- <script src="/scripts/jquery-migrate-3.5.2.js" type="text/javascript"></script> -->
+    <!-- jquery-migrate for production environments. This is minified and does not log warnings to browser console. -->
+    <script src="/scripts/jquery-migrate-3.5.2.min.js" type="text/javascript"></script>
+    <script src="/scripts/jquery-ui.min.js" type="text/javascript"></script>
+
+
+
+<script type="text/javascript" src="/scripts/anime.min.js"></script>
+<script type="text/javascript" src="/scripts/jquery-toasts.js"></script>
+
+<script type="text/javascript">
+    /* chameleon.io script */
+    !function (d, w) { var t = "SswRlew1KB0lLpRC9wIIuTnmAqdnN5m13g0AsYdQicFPsy-1TViCS-FNPbrMlP4v5mC2zd", c = "chmln", i = d.createElement("script"); if (w[c] || (w[c] = {}), !w[c].root) { w[c].accountToken = t, w[c].location = w.location.href.toString(), w[c].now = new Date, w[c].fastUrl = 'https://fast.chameleon.io/'; var m = "identify alias track clear set show on off custom help _data".split(" "); for (var s = 0; s < m.length; s++) { !function () { var t = w[c][m[s] + "_a"] = []; w[c][m[s]] = function () { t.push(arguments); }; }(); } i.src = w[c].fastUrl + "messo/" + t + "/messo.min.js", i.async = !0, d.head.appendChild(i); } }(document, window);
+</script><script src="https://fast.chameleon.io/messo/SswRlew1KB0lLpRC9wIIuTnmAqdnN5m13g0AsYdQicFPsy-1TViCS-FNPbrMlP4v5mC2zd/messo.min.js" async=""></script>
+
+    <script type="text/javascript">
+        (window.$ECP = window.$ECP || []),
+        (window.$ECP.load = function (c) {
+            (window.$ECP.config = c = c || {}),
+            (window.$ECP.q = []),
+            (window.$ECP.initialized = false);
+            var s = document.createElement("script");
+            (s.type = "text/javascript"),
+            (s.async = !0),
+            (s.src =
+                "https://cdn.jsdelivr.net/gh/Evercommerce/ecmarketingpublic@main/ecp-latest.min.js");
+            var x = document.getElementsByTagName("script")[0];
+            x.parentNode.insertBefore(s, x);
+            for (
+            var n = function (m) {
+                return function () {
+                    window.$ECP.q.push(
+                    [m].concat(Array.prototype.slice.call(arguments, 0))
+                    );
+                };
+                },
+                p = ["log", "identify", "track", "generateUUID"],
+                o = 0;
+            o < p.length;
+            o++
+            )
+            window.$ECP[p[o]] = n(p[o]);
+        });
+        $ECP.load();
+    </script>
+
+    <style type="text/css">
+        
+        .walk-through-container {
+            position: absolute;
+            top: 0;
+            right: 200px;
+        }
+        @media screen and (max-width: 1400px) {
+            .walk-through-container {
+                display: none;
+            }
+        }
+    </style>
+<script id="ctl00_ctl00_scriptHeap" type="text/javascript">window.heap=window.heap||[],heap.load=function(e,t){window.heap.appid=e,window.heap.config=t=t||{};var r=document.createElement("script");r.type="text/javascript",r.async=!0,r.src="https://cdn.heapanalytics.com/js/heap-"+e+".js";var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(r,a);for(var n=function(e){return function(){heap.push([e].concat(Array.prototype.slice.call(arguments,0)))}},p=["addEventProperties","addUserProperties","clearEventProperties","identify","resetIdentity","removeEventProperty","setEventProperties","track","unsetEventProperty"],o=0;o<p.length;o++)heap[p[o]]=n(p[o])};
+heap.load("390411679");
+
+                        async function waitForECPInitialization(maxAttempts = 50, interval = 500) {
+                            let attempts = 0;
+
+                            while (attempts < maxAttempts) {
+                                if (window.$ECP && window.$ECP.initialized && typeof window.$ECP.identify === 'function' && typeof window.updateEmployeeECPUserId === 'function') {
+                                    return;
+                                }
+                                attempts++;
+                                await new Promise(resolve => setTimeout(resolve, interval));
+                            }
+
+                            throw new Error('$ECP Error: Initialization timed out.');
+                        }
+                    
+
+                        (async () => {
+                            try {
+                                await waitForECPInitialization();
+                                const ecpUserId = $ECP.identify('ryan@spicerbros.com');
+                                updateEmployeeECPUserId(ecpUserId);
+                            } catch (error) { 
+                                console.error(error.message); 
+                            }
+                        })();
+                    
+heap.addUserProperties({"Company ID":"4453"});
+heap.addUserProperties({"Employee Types":"Operator, SystemAdministrator"});
+</script><script id="ctl00_ctl00_scriptChameleon" type="text/javascript">
+                    /* Chameleon - Identify Users. See chameleon.io */
+                    chmln.identify('99761c17-33f3-480c-99db-f6be94195a8a', {
+                      uid_hash: '49ce2efe5339678762ecd18e79e25af92af7a5798161862f5bf29d9b7b55ed98-1778644814',
+                      email: 'ryan@spicerbros.com',
+                      name: 'Company Cam',
+                      role: 'Operator, SystemAdministrator',
+                      company: {
+                        uid: '4453',
+                        name: 'Spicer Bros. Construction, Inc.',
+                      }
+                    });
+                </script><link href="css/navigation_menu_v9.css?v=3" rel="stylesheet" type="text/css"><link rel="stylesheet" href="https://js.appcenter.intuit.com/Content/IA/intuit.ipp.anywhere.css" type="text/css" media="all"><!--[if IE 7]><style type='text/css'>.intuitPlatformConnectButton, .intuitPlatformReconnectButton, .intuitPlatformLoginButtonVertical, .intuitPlatformLoginButtonHorizontal, .intuitPlatformLoginButtonLogo { font-size:0; text-indent: 0; line-height: 0; overflow: hidden; }</style><![endif]--><style></style><script crossorigin="anonymous" src="https://fast.chameleon.io/edit/user/SswRlew1KB0lLpRC9wIIuTnmAqdnN5m13g0AsYdQicFPsy-1TViCS-FNPbrMlP4v5mC2zd/elements.js"></script></head>
+<body onload="DisplayEdgeWidget()">
+    <form name="aspnetForm" method="post" action="./ContactDetail.aspx?contactOid=152a5dbb-98df-4d84-99d2-75fe0e9a12c7&amp;contactType=3" onsubmit="javascript:return WebForm_OnSubmit();" id="aspnetForm" style="height: 100%;">
+<div>
+<input type="hidden" name="__EVENTTARGET" id="__EVENTTARGET" value="" style="">
+<input type="hidden" name="__EVENTARGUMENT" id="__EVENTARGUMENT" value="" style="">
+<input type="hidden" name="__LASTFOCUS" id="__LASTFOCUS" value="" style="">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="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" style="">
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+var theForm = document.forms['aspnetForm'];
+if (!theForm) {
+    theForm = document.aspnetForm;
+}
+function __doPostBack(eventTarget, eventArgument) {
+    if (!theForm.onsubmit || (theForm.onsubmit() != false)) {
+        theForm.__EVENTTARGET.value = eventTarget;
+        theForm.__EVENTARGUMENT.value = eventArgument;
+        theForm.submit();
+    }
+}
+//]]>
+</script>
+
+
+<script src="/WebResource.axd?d=XozhgO1i0PxM_Z5mQhR6Kkdwnkow-G1VGlY7r6vQTYLAgEPMO2Wiue4DZ08aQS9Gi980wNYS8CcjF2DR6TgeN_sPEeI1&amp;t=638901392248157332" type="text/javascript"></script>
+
+
+<script type="text/javascript">
+//<![CDATA[
+var restApiAddress = 'https://restapi1aws.marketsharpm.com/';var baseUrl = '/';var isKendo = 'True';var lastChatContactId = '';var showChat = false;//]]>
+</script>
+
+<script src="/ScriptResource.axd?d=izf3iyuhm6s2WHYDASfN0UJSs1uRv0TXURO_a3-OU2hs9ihYOGLeqcA_i__3r0uK5JL3INYk_7U5azZsNXy5B3XfkNsjr7xZxO5H36Zo2tI_tGcY4OBwSnAxNFAz9cFx9XA1joqm047XgrLk9XInntKKMrCEROV7arqL2x5-R2YvaAV00&amp;t=5c0e0825" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=TfFMTQhREgsuXd41lvddywkKBNZx_-UkUCTtDhc2V1dJ6oAdUlbah44Fjmu--isEhjPqSVCWm5Gitq_rgKQYJGxlA8FkDSs1dzxsaS6w5J5fezVUfO3zaWkEZZiOf9OR2fimjaTaEfpl1XvYe2PmjW-e8d6bpUnoysf0q3BSxJ45m-X30&amp;t=5c0e0825" type="text/javascript"></script>
+<script src="scripts/querystring.js" type="text/javascript"></script>
+<script src="scripts/intro.js" type="text/javascript"></script>
+<script src="https://js.appcenter.intuit.com/Content/IA/intuit.ipp.anywhere.js" type="text/javascript"></script>
+<script src="Calendar/scripts/ParseApiCookie.1.0.2.js" type="text/javascript"></script>
+<script src="UserControls/GlobalSearch/globalSearch.jqueryui.1.0.1.js" type="text/javascript"></script>
+<script src="UserControls/TextConversations/conversationPopup.1.0.7.js" type="text/javascript"></script>
+<script src="Edge/EdgeWidget.js?v=1" type="text/javascript"></script>
+<script src="scripts/Tooltip/popUpInfo.1.0.2.js" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=WafhU3wn-5-Zd4pUSGP6G8aFlwrKKjuPtaALtlsVhfizMSjiAhlcj1Af2hK71r1ezQPSQz5S4C00sYfRBi3E6RMTCvsQNJe22YpzqxhknY2eedHF6V625neV1CZmCfek0qcBw3IuLjqRKAsHbYL7SJVAvlM1&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=H6QMgze_qNYZZ_dKo8W0fFj19O6U60iV6qx1cSdbBoIKMKDYv75CRTjHdwdPD8009z-pbstpG4flkhJDsDV0z9HWOovUsd9N4qJPWFHg_KQAyXiqiUhG3kujvudgNDoBkjZBNP756oMGyKkE9WXx7aZsowa9bMgnkMc_mDNBkl9MD9qw0&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=25q36aSPdZLFVPMHA7LuJzyi1mwnA-ndOU7QkhmwMSGW_aia3gUGaWQRl1E1fcnS4Ax0GFvJXXhi7f8Aqj9gGtt53Is-1DMxZuFaOHaz1uoV-Wk_1PV6bkGkhOICg7fJNOQne-ukk7jGpAY6SIJ2n-YfU17yXEd0xSSdHkEN4WAfWrVw0&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=VIA5p4JZ9UL9i2Q0mZ6M8Z_TP9Ekiy0i07gz8N5DFIMCa6-CXE99cfJNa6qk6GlfPt4icJ6UDNazCztwMPHcsa56qLwh7ekoHGJ8lm0DQjqrlpws3-9dKVzeVLyFe3fo3-pYenykKv1t95P7rm9Rv29yS0Q1&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=aVEvCcZ-3VNHJV0V74uxi-JIv2RsoCg0GNvIQNlv-qZxXNVEQvtBcjsliJXFVoYXK7y7T2lKrAxQL6HSSJSA4FKcc2_ebvU5mH8-EJMLvOwCwKay5ZNwOfjgFh5HpXQaC5ykPxIXZpqh5_-l0cmDslxY4Qs1&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=goOrRyeBHBo8ZDwIy6yHWQpa0YOxedF5UzJfKb_EpPEMVcVh0aiR5YgL4EvwSlPXes7bmtH3QkEKIzrmBlvTWsBzKpc6IDkOVbAOejsht3x42_fN701XjgdEO-ihBwt1Aa3_3qQp5VIuuN0zEaVcaErILopfMMCgxhY76pZxP1hDN2W80&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=3jmeDPPYBg-xkxvGXQ9pokmbBEKeu7MrfR4Ns9jpzTJVto2c0hTtIUi90T57K3I_0HH1a2qLwmPHPvhj5ge8ZhxpGZ0DyjC33b9MZV42Srczop6C0cpkf0h_ESTpUBatZ8L7UnefZdTKV9kXP33FhzsGsj8MIofsj6qpXUgE-eiBfUROZF0GB2Rww1JDZhnbgpoHkg2&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=lfc82TSQha_8ulf82UjhfhN1TPBNJuMOFFvNC0cHQ9-FShZsjbt0w1_BJYaYqo3-VwsT1n7ZpMUuD8nh77rDl7EdLUUu3oFEgakeGz8ipbhlqF0w8mCJY3tRK5reGfvUBaaAFsUEVx1EKKenf8GWwDCFR3n5W0iQsYGVB6VvN0jTZDJ20&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=5wp1tWwyLyo3pai9xo3f3QtA-9rMZKOqetIQKS3rjDeALJvgHJ6Y5fHN9H0U_5-Y2wtuObkOYyE3iKNa2zPYgfylCL0ewFxx5hZ4Z9b6APcpeBFjMXU14orQXOKeULjL_uDMmAy5xamirlSUYhTdqHWmn89k7n-8dFPE-tEjj2xw5h0nUBd4sO694KLivRxHMuCdyw2&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=wIJTV-v3RWnQ4TDVO752aSlkYNKQeu-EoLAR1C3SDmkMofF5DQ2I-LtlAoWwkuNOWB4sHCnrcnu0xCRJO4I3sUdlj3hZbaWVWnNEH_INhZZ9sCAU628KA3sK_XkLszWNYmclAtfbO7om2jp7gtXGROSy-TqTbimT5dDPTZSrPk2WyCxn0&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=2Q2pW-5K-TNBumFEu0woULsyoLh8DNFuag0mn-QEIfeVw20fhUwFo2QvibsZH14mEslrsiJdlO5FxXnwFs4C6cRGH3208j4HJOYoHuFVOvk-3FYxy17ARKfFmL8sYlwRqLbtU2M-A11Q1FZpUPIaBjjM7npOrsXp0rI95yJV98YaLPCO0&amp;t=5f915bbd" type="text/javascript"></script>
+<script src="/ScriptResource.axd?d=X69Kw3oObrFonW7OEq50Kt8nJFBPvyk4kVJwwj41NSr9JdP5njgOY6mLITW7JGq2BH9eXpIrxVJvMvM_c-TemG3T3rOdROzjYDHK3-cP9_s94510bgc-HpB0vLs_85LwVNEDjfumwFi-9hTqsFUeQvg_rnFl4d6h2YCUDQbxT2RCZ5UN0&amp;t=5f915bbd" type="text/javascript"></script>
+<script type="text/javascript">
+//<![CDATA[
+var PageMethods = function() {
+PageMethods.initializeBase(this);
+this._timeout = 0;
+this._userContext = null;
+this._succeeded = null;
+this._failed = null;
+}
+PageMethods.prototype = {
+_get_path:function() {
+ var p = this.get_path();
+ if (p) return p;
+ else return PageMethods._staticInstance.get_path();},
+SaveContactTagState:function(contactId,contactType,succeededCallback, failedCallback, userContext) {
+return this._invoke(this._get_path(), 'SaveContactTagState',false,{contactId:contactId,contactType:contactType},succeededCallback,failedCallback,userContext); },
+SaveJobQuickBooksState:function(jobOid,succeededCallback, failedCallback, userContext) {
+return this._invoke(this._get_path(), 'SaveJobQuickBooksState',false,{jobOid:jobOid},succeededCallback,failedCallback,userContext); },
+ToggleExportGuildQualityJobSurvey:function(jobOid,companyId,succeededCallback, failedCallback, userContext) {
+return this._invoke(this._get_path(), 'ToggleExportGuildQualityJobSurvey',false,{jobOid:jobOid,companyId:companyId},succeededCallback,failedCallback,userContext); },
+ToggleExportListen360JobSurvey:function(jobOid,succeededCallback, failedCallback, userContext) {
+return this._invoke(this._get_path(), 'ToggleExportListen360JobSurvey',false,{jobOid:jobOid},succeededCallback,failedCallback,userContext); },
+SavePanelCollapsedPreference:function(section,panel,userId,succeededCallback, failedCallback, userContext) {
+return this._invoke(this._get_path(), 'SavePanelCollapsedPreference',false,{section:section,panel:panel,userId:userId},succeededCallback,failedCallback,userContext); }}
+PageMethods.registerClass('PageMethods',Sys.Net.WebServiceProxy);
+PageMethods._staticInstance = new PageMethods();
+PageMethods.set_path = function(value) { PageMethods._staticInstance.set_path(value); }
+PageMethods.get_path = function() { return PageMethods._staticInstance.get_path(); }
+PageMethods.set_timeout = function(value) { PageMethods._staticInstance.set_timeout(value); }
+PageMethods.get_timeout = function() { return PageMethods._staticInstance.get_timeout(); }
+PageMethods.set_defaultUserContext = function(value) { PageMethods._staticInstance.set_defaultUserContext(value); }
+PageMethods.get_defaultUserContext = function() { return PageMethods._staticInstance.get_defaultUserContext(); }
+PageMethods.set_defaultSucceededCallback = function(value) { PageMethods._staticInstance.set_defaultSucceededCallback(value); }
+PageMethods.get_defaultSucceededCallback = function() { return PageMethods._staticInstance.get_defaultSucceededCallback(); }
+PageMethods.set_defaultFailedCallback = function(value) { PageMethods._staticInstance.set_defaultFailedCallback(value); }
+PageMethods.get_defaultFailedCallback = function() { return PageMethods._staticInstance.get_defaultFailedCallback(); }
+PageMethods.set_enableJsonp = function(value) { PageMethods._staticInstance.set_enableJsonp(value); }
+PageMethods.get_enableJsonp = function() { return PageMethods._staticInstance.get_enableJsonp(); }
+PageMethods.set_jsonpCallbackParameter = function(value) { PageMethods._staticInstance.set_jsonpCallbackParameter(value); }
+PageMethods.get_jsonpCallbackParameter = function() { return PageMethods._staticInstance.get_jsonpCallbackParameter(); }
+PageMethods.set_path("ContactDetail.aspx");
+PageMethods.SaveContactTagState= function(contactId,contactType,onSuccess,onFailed,userContext) {PageMethods._staticInstance.SaveContactTagState(contactId,contactType,onSuccess,onFailed,userContext); }
+PageMethods.SaveJobQuickBooksState= function(jobOid,onSuccess,onFailed,userContext) {PageMethods._staticInstance.SaveJobQuickBooksState(jobOid,onSuccess,onFailed,userContext); }
+PageMethods.ToggleExportGuildQualityJobSurvey= function(jobOid,companyId,onSuccess,onFailed,userContext) {PageMethods._staticInstance.ToggleExportGuildQualityJobSurvey(jobOid,companyId,onSuccess,onFailed,userContext); }
+PageMethods.ToggleExportListen360JobSurvey= function(jobOid,onSuccess,onFailed,userContext) {PageMethods._staticInstance.ToggleExportListen360JobSurvey(jobOid,onSuccess,onFailed,userContext); }
+PageMethods.SavePanelCollapsedPreference= function(section,panel,userId,onSuccess,onFailed,userContext) {PageMethods._staticInstance.SavePanelCollapsedPreference(section,panel,userId,onSuccess,onFailed,userContext); }
+function WebForm_OnSubmit() {
+null;
+return true;
+}
+//]]>
+</script>
+
+<div>
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="E19F9614" style="">
+	<input type="hidden" name="__VIEWSTATEENCRYPTED" id="__VIEWSTATEENCRYPTED" value="" style="">
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="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" style="">
+</div>
+        <input type="hidden" name="ctl00$ctl00$hfCompanyState" id="hfCompanyState" value="MD" style="">
+        <input type="hidden" name="ctl00$ctl00$hfCompanyZip" id="hfCompanyZip" value="21804" style="">
+        <input type="hidden" name="ctl00$ctl00$IsKendoCalendar" id="IsKendoCalendar" value="True" style="">
+        <!--[if IE 9]>
+            <script type="text/javascript" src="//cdn.rawgit.com/jpillora/xdomain/0.7.3/dist/xdomain.min.js" slave="https://restapi1aws.marketsharpm.com/proxy.html"></script>
+        <![endif]-->
+        <script type="text/javascript">
+//<![CDATA[
+Sys.WebForms.PageRequestManager._initialize('ctl00$ctl00$ScriptManager1', 'aspnetForm', ['tctl00$ctl00$UpdatePanel1','','tctl00$ctl00$headerV2$notificationsMobile$upNotifications','','tctl00$ctl00$headerV2$notifications$upNotifications','','tctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$ToolbarUpdatePanel','','tctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalUpdatePanel','','tctl00$ctl00$ModalUpdatePanel',''], [], ['ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl$DownloadPDFButton','','ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$DeleteConfirmationPopupControl$ConfirmDeleteButton','','ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$FilterDropDownList','','ctl00$ctl00$MainContentPlaceHolder$SwitchViewLinkButtonPlaceHolder$SwitchViewLinkButton',''], 90, 'ctl00$ctl00');
+//]]>
+</script>
+
+        <script type="text/javascript">
+            var idleTimer = 0;
+            // Zero the idle timer on mouse movement or click
+            $(this).on('mousemove', function (e) {
+                idleTimer = 0;
+            });
+            $(this).on('mousedown', function (e) {
+                idleTimer = 0;
+            });
+
+            setInterval(() => { idleTimer += 10 }, 10000);
+            // Attempt to refresh the chat panel every 15 seconds
+            setInterval(refreshChat, 15000);
+            // Attempt to refresh the recent conversations panel every 90 seconds
+            setInterval(refreshRecentConversations, 90000);
+
+            async function refreshChat() {
+                if (idleTimer <= 120 && !(typeof conversationPopup === 'undefined') && conversationPopup && conversationPopup.IsVisible()) {
+                    await conversation.refreshMessages();
+                }
+            }
+            async function refreshRecentConversations() {
+                if (idleTimer <= 300 && !(typeof conversationsListPopup === 'undefined') && conversationsListPopup) {
+                    if (!isSearchingConversations()) {
+                        await conversationsList.loadConversations();
+                    }
+                }
+            }
+        </script>
+        <div id="ctl00_ctl00_UpdatePanel1">
+	
+                <div id="ctl00_ctl00_ReminderDiv" class="hideMe">
+                    <div class="fatRow" style="border: solid 1px #CCC;">
+                        <div style="padding: 8px; background-image: url('/images/BellBlue.png'); background-position: 5px 50%; background-repeat: no-repeat; padding-left: 25px;">
+                            <a id="ctl00_ctl00_ReminderLinkButton" href="javascript:__doPostBack('ctl00$ctl00$ReminderLinkButton','')"></a>
+                        </div>
+                    </div>
+                    <div id="ctl00_ctl00_NotifierBody" style="overflow: auto; height: 168px; display: none; border: solid 1px #ddd; border-top: #eee;">
+                        
+ 
+<div> 
+ 
+    
+</div>
+
+                    </div>
+                </div>
+            
+</div>
+        
+        
+
+<script type="text/javascript">
+    // Header styling functions
+    function setImgSrc(element, imgSrc, activeTabImgSrc) {
+        const img = element.getElementsByTagName('img')[0];
+        if (img == null) {
+            return;
+        }
+
+        if (element.className && element.className.split(' ').indexOf('selected') >= 0) {
+            img.setAttribute('src', activeTabImgSrc);
+        }
+        else {
+            img.setAttribute('src', imgSrc);
+        }
+	}
+
+	function setNotificationsIconImgSrc(imgSrc) { 
+		const img = document.getElementById('notificationsIcon');
+		if (img == null) {
+			return;
+		}
+
+		img.setAttribute('src', imgSrc);
+	}
+
+	function addOverlay() { 
+        //Add overlay div to body.
+        var w = $(document).width();
+        var h = $(document).height();
+        var $overlay = $('<div/>', {
+            'id': 'contentOverlay',
+            css: {
+                position: 'absolute',
+                height: h + 'px',
+                width: w + 'px',
+                left: 0,
+                top: 0,
+                background: '#000',
+                opacity: 0.5,
+                zIndex: 99
+            }
+        }).appendTo('body');
+
+		//Click overlay to remove.
+		$overlay.on("click", function () {
+			$(this).remove();
+		});
+	}
+
+	$(document).ready(function () {
+		//Remove overlay div on window resize.
+		$(window).on('resize', function () {
+			$('#contentOverlay').remove();
+		});
+	});
+</script>
+<div class="false-nav-background"></div>
+<div id="navigation-header" style="height: 89px;">
+	<div id="header-v2-mobile-header" class="mobile-header">
+		<img id="mobileIcon" src="/images/NavigationIcons/hamburger_icon_black.png" alt="menu open" onclick="addOverlay()">
+		<div style="left: 0; margin-left: 50px; position: absolute;">Contact Record (MarketSharp)</div>
+		<div class="right">
+			<a class="menu-pill" href="/ContactDetail.aspx?contactType=2&amp;showContactMaintenanceModal=true">
+                <img src="/images/NavigationIcons/v2_addlead.png" alt="Add Lead">
+                Add
+            </a>
+		</div>
+		<div class="expandable-menu-item right-sub">
+			
+<div class="menu-item">
+	<div class="sub-menu-parent logo-carat company-logo">
+		<div class="image-container">
+			<div class="image-placeholder"></div>
+			<img id="ctl00_ctl00_headerV2_adminMenuMobile_imgCompanyLogo" src="/VF_Attach/4453/logo/Spicer%20Bros%20Logo_2026_3_10_153656.png" style="border-width:0px;">
+			<img src="/images/arrowvb.png" alt="Carat" class="carat-arrow-image">
+			<div class="container-space"></div>
+
+		</div>
+	</div>
+</div>
+<div class="sub-menu">
+	<div class="menu-item header-item show-row-separator not-clickable">
+        <span id="ctl00_ctl00_headerV2_adminMenuMobile_companyName" style="font-size:17px;font-weight:bold;">Spicer Bros. Construction, Inc.</span>
+		<span id="ctl00_ctl00_headerV2_adminMenuMobile_lblCompanyId" style="font-size:12px;">Company ID: 4453</span>
+		<span id="ctl00_ctl00_headerV2_adminMenuMobile_lblUserName" style="font-size:16px;">Company Cam</span>
+	</div>
+	
+	<div class="menu-item" id="edge-widget-opener-menu" onclick="ToggleEdgeWidgetClick(event)">
+		<img src="/images/EdgeIntegrationIcons/EverCommerce_Circle_Logo.png" class="menu-icon-large" alt="Evercommerce Circle">
+		<img src="/images/EdgeIntegrationIcons/EverPro_Edge.svg" alt="EverPro Edge Widget">
+	</div>
+	<a href="CallCenter/ContactHome.aspx" id="ctl00_ctl00_headerV2_adminMenuMobile_callCenterTab" class="menu-item">
+		<img src="/images/NavigationIcons/v2_callcenter.png" class="menu-icon" alt="call center">
+		<span>Call Center</span>
+	</a>
+	<a onclick="setTarget();" id="updatesTab" class="menu-item" href="javascript:__doPostBack('ctl00$ctl00$headerV2$adminMenuMobile$updatesTab','')">
+		<img src="/images/NavigationIcons/v2_updates.png" class="menu-icon" alt="updates">
+		<div style="width:100%">
+		<div style="float:left;"><span>Updates</span></div>
+		
+			<div style="float:right; padding-right:15px;">
+				<span class="update-notification"></span>
+			</div>
+		
+		<div style="clear:both;"></div>
+		</div>
+	</a>
+	<a id="ctl00_ctl00_headerV2_adminMenuMobile_adminTab" class="menu-item" href="Admin/Home.aspx">
+		<img src="/images/NavigationIcons/v2_admin.png" class="menu-icon" alt="admin">
+		Admin
+	</a>
+	
+	<a id="ctl00_ctl00_headerV2_adminMenuMobile_myAccountTab" class="menu-item" href="MyAccount.aspx">
+		<img src="/images/NavigationIcons/v2_account.png" class="menu-icon" alt="my account">
+		My Account
+	</a>
+	<a href=" https://www.marketsharp.com/referral-program/" id="ctl00_ctl00_headerV2_adminMenuMobile_referralsTab" class="menu-item" target="_blank">
+		<img src="/images/NavigationIcons/v2_referrals.png" class="menu-icon" alt="referrals page">
+		<span>Referrals</span>
+	</a>
+	<a href="https://pages.marketsharp.com/offer-a-testimonial/" id="ctl00_ctl00_headerV2_adminMenuMobile_reviewsTab" class="menu-item" target="_blank">
+		<img src="/images/NavigationIcons/v2_reviews.png" class="menu-icon" alt="reviews page">
+		Reviews
+	</a>
+	
+	
+	
+	
+	
+	<div class="menu-item" onclick="openWidget()">
+		<img src="/images/NavigationIcons/v2_help.png" class="menu-icon" alt="help chat window">
+		Help
+	</div>
+	<a href="https://portal.productboard.com/effqpot5bygvezgrlvyj62kg" id="ctl00_ctl00_headerV2_adminMenuMobile_productFeedback" class="menu-item" target="_blank">
+		<img src="/images/NavigationIcons/review_icon.svg" class="menu-icon" alt="product feedback link">
+		Product Feedback
+	</a>
+	<a href="Logout.aspx" id="ctl00_ctl00_headerV2_adminMenuMobile_logoutTab" class="menu-item">
+		<img src="/images/NavigationIcons/v2_logout.png" class="menu-icon" alt="logout">
+		Logout
+	</a>
+</div>
+		</div>
+		<div class="expandable-menu-item right-sub">
+			<div id="ctl00_ctl00_headerV2_notificationsMobile_upNotifications">
+	
+		<div id="notificationsParent" class="menu-item notifications-menu-parent" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_notifications_hover.png', '/images/NavigationIcons/v2_notifications_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_notifications.png', '/images/NavigationIcons/v2_notifications_active.png');">
+			<div id="notifications">
+				<img src="/images/NavigationIcons/v2_notifications.png" class="menu-icon" alt="notifications" id="notificationsIcon">
+				
+			</div>
+		</div>
+		<div class="sub-menu notifications-menu" onmouseover="setNotificationsIconImgSrc('/images/NavigationIcons/v2_notifications_hover.png');" onmouseout="setNotificationsIconImgSrc('/images/NavigationIcons/v2_notifications.png');">
+			
+					<div class="header menu-item">
+						<div style="float:left; width:355px;">Notifications</div>
+						<div style="float:right;">
+							
+						</div>
+						<div style="clear:both;"></div>
+					</div>
+				
+					<div id="ctl00_ctl00_headerV2_notificationsMobile_repNotifications_ctl01_pnlNoNotificationsMessage" class="menu-item notifications-empty">
+		
+						<div class="notifications-empty-icon"><img src="/images/NavigationIcons/v2_notifications_none.png" alt="no notifications"></div>
+						<div>
+							<p>You're up to date!</p>
+							<p>You have no unread notifications.</p>
+						</div>
+					
+	</div>
+					<div style="height:10px;"></div>
+				
+		</div>
+		<input type="hidden" name="ctl00$ctl00$headerV2$notificationsMobile$hfDismissNotificationActivityOID" id="ctl00_ctl00_headerV2_notificationsMobile_hfDismissNotificationActivityOID" style="">
+		<input type="submit" name="ctl00$ctl00$headerV2$notificationsMobile$btnDismissNotification" value="Dismiss" id="ctl00_ctl00_headerV2_notificationsMobile_btnDismissNotification" style="display: none;">
+	
+</div>
+		</div>
+	</div>
+	<div id="header-v2-menu-container" class="menu-container">
+		<a href="AppEntryRouting.aspx?entryPoint=dashboard" id="toDashboard" class="menu-item ms-logo" onmouseover="setImgSrc(this, '/images/NavigationIcons/byEP_MS_full_color_HOVERED.png', '/images/NavigationIcons/byEP_MS_full_color_NONHOVERED.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/byEP_MS_full_color_NONHOVERED.png', '/images/NavigationIcons/byEP_MS_full_color_NONHOVERED.png');">
+            <img src="/images/NavigationIcons/byEP_MS_full_color_NONHOVERED.png" alt="dashboard" style="height:74px;">
+		</a>
+
+		<div class="menu-item search-menu show-in-mobile-only">
+            <input name="ctl00$ctl00$headerV2$txtSearchBoxMobile" type="text" maxlength="250" id="txtSearchBoxMobile" class="inputText searchTextBox" placeholder="Search" style="">
+			<div id="searchResultsMobile" class="search-results"></div>
+        </div>
+
+        <div id="contactTab" class="menu-item menu-item-tab selected" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_contacts_hover.png', '/images/NavigationIcons/v2_contacts_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_contacts.png', '/images/NavigationIcons/v2_contacts_active.png');">
+            <a href="/ContactsHome.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgContactTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_contacts_active.png" alt="contacts tab" style="border-width:0px;">
+					<span>Contacts</span>
+				</div>
+		    </a>
+        </div>
+
+        <div id="activityTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_activity_hover.png', '/images/NavigationIcons/v2_activity_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_activity.png', '/images/NavigationIcons/v2_activity_active.png');">
+            <a href="/ActivityList.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgActivityTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_activity.png" alt="activity list tab" style="border-width:0px;">
+					<span>Activity</span>
+				</div>
+		    </a>
+        </div>
+
+        <div id="slotSchedulerTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_schedule_hover.png', '/images/NavigationIcons/v2_schedule_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_schedule.png', '/images/NavigationIcons/v2_schedule_active.png');">
+            <a href="/SlotScheduler/SlotScheduler.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgSlotSchedulerTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_schedule.png" alt="slot scheduler tab" style="border-width:0px;">
+					<span>Schedule</span>
+				</div>
+		    </a>
+        </div>
+
+        <div id="calendarTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_calendar_hover.png', '/images/NavigationIcons/v2_calendar_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_calendar.png', '/images/NavigationIcons/v2_calendar_active.png');">
+            <a href="/Calendar/CalendarScheduler.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgCalendarTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_calendar.png" alt="calendar tab" style="border-width:0px;">
+					<span>Calendar</span>
+				</div>
+		    </a>
+        </div>
+
+        <div id="salesTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_sales_hover.png', '/images/NavigationIcons/v2_sales_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_sales.png', '/images/NavigationIcons/v2_sales_active.png');">
+            <a href="/SalesList.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgSalesTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_sales.png" alt="sales list tab" style="border-width:0px;">
+					<span>Sales</span>
+				</div>
+		    </a>
+        </div>
+
+		<div id="paymentsTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/monetization_hover.png', '/images/NavigationIcons/monetization_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/monetization_on.png', '/images/NavigationIcons/monetization_active.png');">
+            <a href="
+               /Admin/PaySimplePaymentManager.aspx
+				 ">
+                <div>
+                    <div id="notifications-tabs">
+                        <img id="ctl00_ctl00_headerV2_imgPaymentsTabIcon" class="menu-icon" src="/images/NavigationIcons/monetization_on.png" alt="payments tab" style="border-width:0px;">
+                    </div>
+                    <span>Payments</span>
+                </div>
+            </a>
+		</div>
+
+        <div id="productTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_production_hover.png', '/images/NavigationIcons/v2_production_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_production.png', '/images/NavigationIcons/v2_production_active.png');">
+            <a href="/ProductionList.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgProductTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_production.png" alt="production list tab" style="border-width:0px;">
+					<span>Production</span>
+				</div>
+		    </a>
+        </div>
+
+        <div id="serviceTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_service_hover.png', '/images/NavigationIcons/v2_service_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_service.png', '/images/NavigationIcons/v2_service_active.png');">
+            <a href="/ServiceList.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgServiceTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_service.png" alt="service list tab" style="border-width:0px;">
+					<span>Service</span>
+				</div>
+		    </a>
+        </div>
+
+        <div id="reportingTab" class="menu-item menu-item-tab" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_reporting_hover.png', '/images/NavigationIcons/v2_reporting_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_reporting.png', '/images/NavigationIcons/v2_reporting_active.png');">
+            <a href="/Reports/ReportHome.aspx">
+				<div>
+					<img id="ctl00_ctl00_headerV2_imgReportingTabIcon" class="menu-icon" src="/images/NavigationIcons/v2_reporting.png" alt="reporting tab" style="border-width:0px;">
+					<span>Reporting</span>
+				</div>
+		    </a>
+        </div>
+		        
+        <div class="right left-border hide-in-mobile">
+            <div class="menu-item search-menu not-clickable">
+                <input name="ctl00$ctl00$headerV2$searchTextBox" type="text" maxlength="250" id="searchTextBox" class="inputText searchTextBox ui-autocomplete-input" placeholder="Search" autocomplete="off" style="">
+                <div id="searchResults" class="search-results"><ul id="ui-id-1" tabindex="0" class="ui-menu ui-widget ui-widget-content ui-autocomplete ui-front" style="display: none;"></ul></div>
+            </div>
+        </div>
+        <div class="right-sub hide-in-mobile">
+            <div class="menu-item">
+                <a href="ContactDetail.aspx?contactType=2&amp;showContactMaintenanceModal=true" id="A1" class="menu-pill-desktop">
+                    <img src="/images/NavigationIcons/add_default.svg" alt="Add Lead">
+                    <span class="add-lead"> Add Lead </span>
+                </a>
+            </div>
+        </div>
+		<div class="expandable-menu-item  left-border hide-in-mobile">
+			
+<div class="menu-item">
+	<div class="sub-menu-parent logo-carat company-logo">
+		<div class="image-container">
+			<div class="image-placeholder"></div>
+			<img id="ctl00_ctl00_headerV2_adminMenu_imgCompanyLogo" src="/VF_Attach/4453/logo/Spicer%20Bros%20Logo_2026_3_10_153656.png" style="border-width:0px;">
+			<img src="/images/arrowvb.png" alt="Carat" class="carat-arrow-image">
+			<div class="container-space"></div>
+
+		</div>
+	</div>
+</div>
+<div class="sub-menu">
+	<div class="menu-item header-item show-row-separator not-clickable">
+        <span id="ctl00_ctl00_headerV2_adminMenu_companyName" style="font-size:17px;font-weight:bold;">Spicer Bros. Construction, Inc.</span>
+		<span id="ctl00_ctl00_headerV2_adminMenu_lblCompanyId" style="font-size:12px;">Company ID: 4453</span>
+		<span id="ctl00_ctl00_headerV2_adminMenu_lblUserName" style="font-size:16px;">Company Cam</span>
+	</div>
+	
+	<div class="menu-item" id="edge-widget-opener-menu" onclick="ToggleEdgeWidgetClick(event)">
+		<img src="/images/EdgeIntegrationIcons/EverCommerce_Circle_Logo.png" class="menu-icon-large" alt="Evercommerce Circle">
+		<img src="/images/EdgeIntegrationIcons/EverPro_Edge.svg" alt="EverPro Edge Widget">
+	</div>
+	<a href="CallCenter/ContactHome.aspx" id="ctl00_ctl00_headerV2_adminMenu_callCenterTab" class="menu-item">
+		<img src="/images/NavigationIcons/v2_callcenter.png" class="menu-icon" alt="call center">
+		<span>Call Center</span>
+	</a>
+	<a onclick="setTarget();" id="updatesTab" class="menu-item" href="javascript:__doPostBack('ctl00$ctl00$headerV2$adminMenu$updatesTab','')">
+		<img src="/images/NavigationIcons/v2_updates.png" class="menu-icon" alt="updates">
+		<div style="width:100%">
+		<div style="float:left;"><span>Updates</span></div>
+		
+			<div style="float:right; padding-right:15px;">
+				<span class="update-notification"></span>
+			</div>
+		
+		<div style="clear:both;"></div>
+		</div>
+	</a>
+	<a id="ctl00_ctl00_headerV2_adminMenu_adminTab" class="menu-item" href="Admin/Home.aspx">
+		<img src="/images/NavigationIcons/v2_admin.png" class="menu-icon" alt="admin">
+		Admin
+	</a>
+	
+	<a id="ctl00_ctl00_headerV2_adminMenu_myAccountTab" class="menu-item" href="MyAccount.aspx">
+		<img src="/images/NavigationIcons/v2_account.png" class="menu-icon" alt="my account">
+		My Account
+	</a>
+	<a href=" https://www.marketsharp.com/referral-program/" id="ctl00_ctl00_headerV2_adminMenu_referralsTab" class="menu-item" target="_blank">
+		<img src="/images/NavigationIcons/v2_referrals.png" class="menu-icon" alt="referrals page">
+		<span>Referrals</span>
+	</a>
+	<a href="https://pages.marketsharp.com/offer-a-testimonial/" id="ctl00_ctl00_headerV2_adminMenu_reviewsTab" class="menu-item" target="_blank">
+		<img src="/images/NavigationIcons/v2_reviews.png" class="menu-icon" alt="reviews page">
+		Reviews
+	</a>
+	
+	
+	
+	
+	
+	<div class="menu-item" onclick="openWidget()">
+		<img src="/images/NavigationIcons/v2_help.png" class="menu-icon" alt="help chat window">
+		Help
+	</div>
+	<a href="https://portal.productboard.com/effqpot5bygvezgrlvyj62kg" id="ctl00_ctl00_headerV2_adminMenu_productFeedback" class="menu-item" target="_blank">
+		<img src="/images/NavigationIcons/review_icon.svg" class="menu-icon" alt="product feedback link">
+		Product Feedback
+	</a>
+	<a href="Logout.aspx" id="ctl00_ctl00_headerV2_adminMenu_logoutTab" class="menu-item">
+		<img src="/images/NavigationIcons/v2_logout.png" class="menu-icon" alt="logout">
+		Logout
+	</a>
+</div>			
+		</div>
+		<div class="expandable-menu-item right-sub-notification hide-in-mobile">
+			<div id="ctl00_ctl00_headerV2_notifications_upNotifications">
+	
+		<div id="notificationsParent" class="menu-item notifications-menu-parent" onmouseover="setImgSrc(this, '/images/NavigationIcons/v2_notifications_hover.png', '/images/NavigationIcons/v2_notifications_active.png');" onmouseout="setImgSrc(this, '/images/NavigationIcons/v2_notifications.png', '/images/NavigationIcons/v2_notifications_active.png');">
+			<div id="notifications">
+				<img src="/images/NavigationIcons/v2_notifications.png" class="menu-icon" alt="notifications" id="notificationsIcon">
+				
+			</div>
+		</div>
+		<div class="sub-menu notifications-menu" onmouseover="setNotificationsIconImgSrc('/images/NavigationIcons/v2_notifications_hover.png');" onmouseout="setNotificationsIconImgSrc('/images/NavigationIcons/v2_notifications.png');">
+			
+					<div class="header menu-item">
+						<div style="float:left; width:355px;">Notifications</div>
+						<div style="float:right;">
+							
+						</div>
+						<div style="clear:both;"></div>
+					</div>
+				
+					<div id="ctl00_ctl00_headerV2_notifications_repNotifications_ctl01_pnlNoNotificationsMessage" class="menu-item notifications-empty">
+		
+						<div class="notifications-empty-icon"><img src="/images/NavigationIcons/v2_notifications_none.png" alt="no notifications"></div>
+						<div>
+							<p>You're up to date!</p>
+							<p>You have no unread notifications.</p>
+						</div>
+					
+	</div>
+					<div style="height:10px;"></div>
+				
+		</div>
+		<input type="hidden" name="ctl00$ctl00$headerV2$notifications$hfDismissNotificationActivityOID" id="ctl00_ctl00_headerV2_notifications_hfDismissNotificationActivityOID" style="">
+		<input type="submit" name="ctl00$ctl00$headerV2$notifications$btnDismissNotification" value="Dismiss" id="ctl00_ctl00_headerV2_notifications_btnDismissNotification" style="display: none;">
+	
+</div>
+		</div>
+	</div>
+</div>
+        <input type="hidden" name="ctl00$ctl00$hfHeaderVersion" id="hfHeaderVersion" value="v2" style="">
+        <div id="content" style="margin-top: 10px;">
+            
+
+    <style type="text/css">
+        .leftContactMenu a:hover, .leftContactMenu a:visited, .leftContactMenu a:link, .leftContactMenu a:active {
+            text-decoration: none;
+        }
+
+        .leftContactMenu a:hover {
+            background-color: #DDDDDD;
+        }
+    </style>
+    <script type="text/javascript">
+        function getCookie(c_name) {
+            if (document.cookie.length > 0) {
+                c_start = document.cookie.indexOf(c_name + "=");
+                if (c_start != -1) {
+                    c_start = c_start + c_name.length + 1;
+                    c_end = document.cookie.indexOf(";", c_start);
+                    if (c_end == -1) c_end = document.cookie.length;
+                    return unescape(document.cookie.substring(c_start, c_end));
+                }
+            }
+            return "";
+        };
+
+        Sys.Application.add_load(function () {
+
+            let type = $("#ctl00_ctl00_MainContentPlaceHolder_mainMenuContactTypeDropDownList").val();
+
+            formatMainTitleBar(type);
+            formatLeftMenu(type);
+            setSelectedMenuItem();
+        });
+
+        function formatMainTitleBar(contactType) {
+            if (contactType == "3" || contactType == "4") {
+                $(".ContactPageTitleDiv").css("background-color", "#A2CBAB");
+            }
+            else if (contactType == "1") {
+                $(".ContactPageTitleDiv").css("background-color", "#7FA9D2");
+            }
+            else {
+                $(".ContactPageTitleDiv").css("background-color", "#E8878A");
+            }
+        }
+
+        function setSelectedMenuItem() {
+            let url = window.location.href;
+           
+            if (url.includes('ProspectsList')) {
+                $("#ctl00_ctl00_MainContentPlaceHolder_ListView").css("background-color", "#DDDDDD");
+                $("#ctl00_ctl00_MainContentPlaceHolder_ListView").css("font-weight", "bold");
+            } else if (url.includes('ContactDetail')) {
+                $("#ctl00_ctl00_MainContentPlaceHolder_RecordView").css("background-color", "#DDDDDD");
+                $("#ctl00_ctl00_MainContentPlaceHolder_RecordView").css("font-weight", "bold");
+            } else if (url.includes('PrintAssistant')) {
+                $("#ctl00_ctl00_MainContentPlaceHolder_PrintContact").css("background-color", "#DDDDDD");
+                $("#ctl00_ctl00_MainContentPlaceHolder_PrintContact").css("font-weight", "bold");
+            } else if (url.includes('EmailAssistant')) {
+                $("#ctl00_ctl00_MainContentPlaceHolder_EmailContact").css("background-color", "#DDDDDD");
+                $("#ctl00_ctl00_MainContentPlaceHolder_EmailContact").css("font-weight", "bold");
+            }
+        }
+
+        function formatLeftMenu(contactType) {
+
+            if (contactType == "3" || contactType == "4") { // customer
+
+                $("#ctl00_ctl00_MainContentPlaceHolder_imgCog").attr("src", "/images/greenCog.png");
+                $(".leftMenuBanner").css("background-color", "#A2CBAB");
+                $("#ctl00_ctl00_MainContentPlaceHolder_mainMenuContactTypeDropDownList").css("background-color", "#A2CBAB");
+            }
+            else if (contactType == "1") { // prospect
+
+                $("#ctl00_ctl00_MainContentPlaceHolder_imgCog").attr("src", "/images/BlueCog.png");
+                $(".leftMenuBanner").css("background-color", "#7FA9D2");
+                $("#ctl00_ctl00_MainContentPlaceHolder_mainMenuContactTypeDropDownList").css("background-color", "#7FA9D2");
+            }
+            else if (contactType == "2") { // lead
+
+                $("#ctl00_ctl00_MainContentPlaceHolder_imgCog").attr("src", "/images/redCog.png");
+                $(".leftMenuBanner").css("background-color", "#E8878A");
+                $("#ctl00_ctl00_MainContentPlaceHolder_mainMenuContactTypeDropDownList").css("background-color", "#E8878A");
+            }
+
+            // set hrefs
+            $("#ctl00_ctl00_MainContentPlaceHolder_ListView").attr("href", "/ProspectsList.aspx?contactType=" + contactType + "");
+            $("#ctl00_ctl00_MainContentPlaceHolder_RecordView").attr("href", "/ContactDetail.aspx?contactType=" + contactType + "");
+            $("#ctl00_ctl00_MainContentPlaceHolder_PrintContact").attr("href", "/PrintAssistant/Home.aspx?contactType=" + contactType + "");
+            $("#ctl00_ctl00_MainContentPlaceHolder_EmailContact").attr("href", "/EmailAssistant/EmailWizard.aspx?contactType=" + contactType + "");
+        }
+
+        function buildUserPrefBindingModel(name, value) {
+
+            let itemModel = {
+                Name: name,
+                Value: value
+            };
+            return JSON.stringify(itemModel);
+        }
+
+        function getCollapsedStateByName(extenderName) {
+
+            let extenderControl = null;
+
+            switch (extenderName) {
+                case 'QuickFindPanelCollapsed':
+                    extenderControl = $find("expandingCollapsingSearchPanelExtender");
+                    break;
+                default:
+                    break; // nothing
+            }
+
+            if (extenderControl != null) {
+                return !extenderControl.get_Collapsed();
+            } else {
+                return null;
+            }
+        }
+
+        function SetUserPref(name) {
+
+            // the user pref name passed should match the UserPrefDefinitions
+            // user pref is defined in domain\Application\Employees\Models\UserPrefDefinitions.cs
+            let collapseState = getCollapsedStateByName(name);
+            let empId = document.getElementById('ctl00_ctl00_MainContentPlaceHolder_hidEmployeeId');
+            let companyApiURL = restApiAddressFromCookie + "companies";
+            let userPrefBaseUrl = companyApiURL + "/" + companyId + "/employees/" + empId.value;
+
+            $.ajax({
+                type: "POST",
+                url: userPrefBaseUrl + "/userPrefs?api-version=2.0",
+                data: buildUserPrefBindingModel(name, collapseState),
+                contentType: "application/json; charset=utf-8",
+                dataType: "json",
+                headers: authorizationHeader,
+                success: function (msg) {
+                    $("#divResult").html("success");
+                },
+                error: function (e) {
+                    $("#divResult").html("Something Wrong.");
+                }
+            });
+        }
+
+    </script>
+
+    <div id="contactMasterLeft">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$hidEmployeeId" id="ctl00_ctl00_MainContentPlaceHolder_hidEmployeeId" value="99761c17-33f3-480c-99db-f6be94195a8a" style="">
+        <div id="ctl00_ctl00_MainContentPlaceHolder_customers" class="navSubContactType">
+            <div class="leftMenuBanner" style="background-color: rgb(162, 203, 171);">
+                <img id="ctl00_ctl00_MainContentPlaceHolder_imgCog" class="cogImageMiddleAlignment" src="/images/greenCog.png" style="border-width:0px;">
+               
+                <select name="ctl00$ctl00$MainContentPlaceHolder$mainMenuContactTypeDropDownList" onchange="javascript:setTimeout('__doPostBack(\'ctl00$ctl00$MainContentPlaceHolder$mainMenuContactTypeDropDownList\',\'\')', 0)" id="ctl00_ctl00_MainContentPlaceHolder_mainMenuContactTypeDropDownList" class="contactTypeDropdown" style="background-color: rgb(162, 203, 171);">
+	<option value="1" style="background-color: white !important; color:black !important">Prospects</option>
+	<option value="2" style="background-color: white !important;color:black !important">Leads</option>
+	<option selected="selected" value="3" style="background-color: white !important;color:black !important">Customers</option>
+
+</select>
+            </div>
+            <div id="ctl00_ctl00_MainContentPlaceHolder_customersSubMenu" name="customersSubMenu" class="leftContactMenu">
+                <a id="ctl00_ctl00_MainContentPlaceHolder_ListView" class="leftContactMenuItem" href="/ProspectsList.aspx?contactType=3">List View</a>
+                <a id="ctl00_ctl00_MainContentPlaceHolder_RecordView" class="leftContactMenuItem" href="/ContactDetail.aspx?contactType=3" style="background-color: rgb(221, 221, 221); font-weight: bold;">Record View</a>
+                <a id="ctl00_ctl00_MainContentPlaceHolder_PrintContact" class="leftContactMenuItem" href="/PrintAssistant/Home.aspx?contactType=3">Print Assistant</a>
+                <a id="ctl00_ctl00_MainContentPlaceHolder_EmailContact" class="leftContactMenuItem" href="/EmailAssistant/EmailWizard.aspx?contactType=3">Email Assistant</a>
+            </div>
+        </div>
+
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$lastNameTextBoxWatermark_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_lastNameTextBoxWatermark_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$firstNameTextBoxWatermark_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_firstNameTextBoxWatermark_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$TextBoxWatermarkExtender1_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_TextBoxWatermarkExtender1_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$addressTextBoxWatermark_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_addressTextBoxWatermark_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$cityTextBoxWatermark_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_cityTextBoxWatermark_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$zipTextBoxWatermark_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_zipTextBoxWatermark_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$phoneNumberTextBoxWatermarkExtender_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_phoneNumberTextBoxWatermarkExtender_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$emailAddressTextBoxWatermarkExtender_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_emailAddressTextBoxWatermarkExtender_ClientState" style="">
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$jobNumberTextBoxWatermarkExtender_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_jobNumberTextBoxWatermarkExtender_ClientState" style="">
+
+        <div class="quickFindDiv">
+            <div id="QuickFindHeaderDiv" onclick="SetUserPref('QuickFindPanelCollapsed');" style="color: black; font-weight: bold;">
+                <img src="images/SearchDarkBlue.png" align="absmiddle" style="border-width:0px;">
+                <span id="ctl00_ctl00_MainContentPlaceHolder_QuickFindLabel" class="titleText font-medium quickFindImageMiddleAlignment">Quick Find</span>
+                <img id="ctl00_ctl00_MainContentPlaceHolder_QuickFindToggleImage" src="images/Expand2.png" align="absmiddle" style="border-width:0px;float:right; padding-right:5px;">
+            </div>
+            <div id="ctl00_ctl00_MainContentPlaceHolder_searchPanel" onkeypress="javascript:return WebForm_FireDefaultButton(event, 'searchButton')" style="background-color: white; margin: 5px 0px; overflow-y: hidden; height: auto;"><div id="" onkeypress="javascript:return WebForm_FireDefaultButton(event, 'searchButton')" style="background-color: white; height: auto;">
+	
+                <div id="ctl00_ctl00_MainContentPlaceHolder_quickFind" style="background-color: #DDDDDD">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$firstNameTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_firstNameTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$lastNameTextBox" type="text" id="lastNameTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$businessNameTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_businessNameTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$addressTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_addressTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$cityTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_cityTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <select name="ctl00$ctl00$MainContentPlaceHolder$SearchStateDropDownList" id="ctl00_ctl00_MainContentPlaceHolder_SearchStateDropDownList" style="width: 70px; height: 25px; margin-bottom: 5px;">
+		<option selected="selected" value="">State</option>
+		<option value="AL">AL</option>
+		<option value="AK">AK</option>
+		<option value="AZ">AZ</option>
+		<option value="AR">AR</option>
+		<option value="CA">CA</option>
+		<option value="CO">CO</option>
+		<option value="CT">CT</option>
+		<option value="DE">DE</option>
+		<option value="DC">DC</option>
+		<option value="FL">FL</option>
+		<option value="GA">GA</option>
+		<option value="HI">HI</option>
+		<option value="ID">ID</option>
+		<option value="IL">IL</option>
+		<option value="IN">IN</option>
+		<option value="IA">IA</option>
+		<option value="KS">KS</option>
+		<option value="KY">KY</option>
+		<option value="LA">LA</option>
+		<option value="ME">ME</option>
+		<option value="MD">MD</option>
+		<option value="MA">MA</option>
+		<option value="MI">MI</option>
+		<option value="MN">MN</option>
+		<option value="MS">MS</option>
+		<option value="MO">MO</option>
+		<option value="MT">MT</option>
+		<option value="NE">NE</option>
+		<option value="NV">NV</option>
+		<option value="NH">NH</option>
+		<option value="NJ">NJ</option>
+		<option value="NM">NM</option>
+		<option value="NY">NY</option>
+		<option value="NC">NC</option>
+		<option value="ND">ND</option>
+		<option value="OH">OH</option>
+		<option value="OK">OK</option>
+		<option value="OR">OR</option>
+		<option value="PA">PA</option>
+		<option value="RI">RI</option>
+		<option value="SC">SC</option>
+		<option value="SD">SD</option>
+		<option value="TN">TN</option>
+		<option value="TX">TX</option>
+		<option value="UT">UT</option>
+		<option value="VT">VT</option>
+		<option value="VA">VA</option>
+		<option value="WA">WA</option>
+		<option value="WV">WV</option>
+		<option value="WI">WI</option>
+		<option value="WY">WY</option>
+		<option value="--">--</option>
+		<option value="AB">AB</option>
+		<option value="BC">BC</option>
+		<option value="MB">MB</option>
+		<option value="NB">NB</option>
+		<option value="NL">NL</option>
+		<option value="NT">NT</option>
+		<option value="NS">NS</option>
+		<option value="NU">NU</option>
+		<option value="ON">ON</option>
+		<option value="PE">PE</option>
+		<option value="QC">QC</option>
+		<option value="SK">SK</option>
+		<option value="YT">YT</option>
+
+	</select>
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$zipTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_zipTextBox" class="watermarked" style="margin-bottom: 5px; width: 66px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$phoneNumberTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_phoneNumberTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$emailAddressTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_emailAddressTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <input name="ctl00$ctl00$MainContentPlaceHolder$jobNumberTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_jobNumberTextBox" class="watermarked" style="margin-bottom: 5px;">
+                    <select name="ctl00$ctl00$MainContentPlaceHolder$contactTypeDropDownList" id="ctl00_ctl00_MainContentPlaceHolder_contactTypeDropDownList" style="width:148px; margin-bottom: 5px;">
+		<option selected="selected" value="0">All Contacts</option>
+		<option value="1">Prospects</option>
+		<option value="2">Leads</option>
+		<option value="3">Customers</option>
+
+	</select>
+                    <div id="ctl00_ctl00_MainContentPlaceHolder_SearchFindOptions" style="border-color: rgb(110, 110, 110); border-width: 1px; border-style: solid; width: 147px; height: auto; overflow: auto;">
+		<input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$SearchFindOptions_AccordionExtender_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_SearchFindOptions_AccordionExtender_ClientState" value="0" style=""><div class="SelectedHeader">
+			
+                                    <div class="findOptions">
+                                        <div style="padding-left: 3px; padding-top: 1px;">
+                                            Find Options
+                                            <div class="imageSpacing cogImage"></div>
+                                        </div>
+                                    </div>
+                                
+		</div><div style="height: auto; overflow: auto; display: block;"><div class="Contents" style="display: block; height: auto; overflow: auto;">
+			
+                                    <div style="background-color: white">
+                                        <div class="searchOptionHeader">Find Types</div>
+                                        <div id="ctl00_ctl00_MainContentPlaceHolder_ctl03_ContactSearchCheckboxDiv">
+                                            <span class="searchOptionDetail"><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_ContactSearchCheckbox" type="checkbox" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$ContactSearchCheckbox" checked="checked" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_ContactSearchCheckbox">Contact</label></span>
+                                        </div>
+                                        <div id="ctl00_ctl00_MainContentPlaceHolder_ctl03_InquirySearchCheckboxDiv">
+                                            <span class="searchOptionDetail"><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_InquirySearchCheckbox" type="checkbox" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$InquirySearchCheckbox" checked="checked" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_InquirySearchCheckbox">Inquiry</label></span>
+                                        </div>
+                                        <div id="ctl00_ctl00_MainContentPlaceHolder_ctl03_JobSearchCheckboxDiv">
+                                            <span class="searchOptionDetail"><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_JobSearchCheckbox" type="checkbox" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$JobSearchCheckbox" checked="checked" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_JobSearchCheckbox">Job</label></span>
+                                        </div>
+                                        <div id="ctl00_ctl00_MainContentPlaceHolder_ctl03_AddlContactsSearchCheckboxDiv">
+                                            <span class="searchOptionDetail"><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_AddlContactsSearchCheckbox" type="checkbox" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$AddlContactsSearchCheckbox" checked="checked" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_AddlContactsSearchCheckbox">Add'l Contact</label></span>
+                                        </div>
+                                        <div class="searchOptionHeader">Find Top Results</div>
+                                        <table id="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList" class="searchOptionDetailRadioButtonList" cellspacing="0" border="0" style="border-collapse:collapse;">
+				<tbody><tr>
+					<td><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_0" type="radio" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$NumberOfReturnRadioButtonList" value="100" checked="checked" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_0">100</label></td>
+				</tr><tr>
+					<td><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_1" type="radio" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$NumberOfReturnRadioButtonList" value="250" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_1">250</label></td>
+				</tr><tr>
+					<td><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_2" type="radio" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$NumberOfReturnRadioButtonList" value="500" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_2">500</label></td>
+				</tr><tr>
+					<td><input id="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_3" type="radio" name="ctl00$ctl00$MainContentPlaceHolder$ctl03$NumberOfReturnRadioButtonList" value="1000" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ctl03_NumberOfReturnRadioButtonList_3">1000</label></td>
+				</tr>
+			</tbody></table>
+                                    </div>
+                                
+		</div></div>
+	</div>
+                    <input type="button" name="ctl00$ctl00$MainContentPlaceHolder$searchButton" value="Find" onclick="javascript:__doPostBack('ctl00$ctl00$MainContentPlaceHolder$searchButton','')" id="searchButton" class="inputButton" style="margin-top: 5px; width: 149px;">
+                </div>
+            
+</div></div>
+        </div>
+        <input type="hidden" name="ctl00$ctl00$MainContentPlaceHolder$expandingCollapsingSearchPanelExtender_ClientState" id="ctl00_ctl00_MainContentPlaceHolder_expandingCollapsingSearchPanelExtender_ClientState" value="false" style="">
+    </div>
+
+    <div id="contactMasterContent" class="contactMasterContent">
+        <div style="margin-right: 10px;">
+            <div>
+                <div class="ContactPageTitleDiv" style="background-color: rgb(162, 203, 171);">
+                    <div style="float: left;padding-left:5px;">
+                        <span id="ctl00_ctl00_MainContentPlaceHolder_ContactsPageTitleLabel" style="font-weight:bold;font-size:1.5rem;">Record View</span>
+                    </div>
+                    <div style="float: right;">
+                        
+    <div style="float: right; padding: 2px;">
+        <a id="ctl00_ctl00_MainContentPlaceHolder_SwitchViewLinkButtonPlaceHolder_SwitchViewLinkButton" href="javascript:__doPostBack('ctl00$ctl00$MainContentPlaceHolder$SwitchViewLinkButtonPlaceHolder$SwitchViewLinkButton','')" style="color:White;">(Switch to Panel View Layout)</a>
+    </div>
+
+                    </div>
+                    <div style="clear: both;">
+                    </div>
+                </div>
+            </div>
+            <script id="dxis_1401700598" src="/DXR.axd?r=1_11,1_12,1_255,1_23,1_64,1_14,1_15,1_17,1_41,1_49,1_182-rHQiu" type="text/javascript"></script><div id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_PW-1" class="dxpcLite dxpclW" style="height:200px;width:300px;z-index:10000;display:none;visibility:hidden;">
+	<div class="dxpc-mainDiv dxpc-shadow">
+		<div class="dxpc-header drag dxpc-withBtn" style="-webkit-user-select:none;" id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_PWH-1">
+			<div class="dxpc-closeBtn" id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_HCB-1">
+				<img class="dxWeb_pcCloseButton" src="/DXR.axd?r=1_89-rHQiu" alt="Close">
+			</div><div class="dxpc-headerContent">
+				<span class="dxpc-headerText dx-vam" id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_PWH-1T">Contact Search</span>
+			</div><b class="dx-clear"></b>
+		</div><div class="dxpc-contentWrapper">
+			<div class="dxpc-content" style="overflow:auto;" id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_PWC-1">
+				
+                        <div style="padding: 10px 0px 10px 0">
+                            <div id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_SearchWarningText"></div>
+                        </div>
+
+                        <div id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_footer" style="padding: 15px 0 0 0" class="modalUserControlFooter">
+                            <button id="OkButton" tabindex="101" onclick="ContactSearchWarning.Hide();" type="button" value="Ok">
+                                Ok</button>
+                        </div>
+                    
+			</div>
+		</div>
+	</div>
+</div><div id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_DXPWMB-1" class="dxpcModalBackLite" style="z-index:9999;">
+
+</div><table id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_LP" class="dxpcLoadingPanel dxlpLoadingPanel" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;left:0px;top:0px;z-index:30000;display:none;">
+	<tbody><tr>
+		<td class="dx" style="padding-right:0px;"><img class="dxlp-loadingImage dxlp-imgPosLeft" src="/DXR.axd?r=1_89-rHQiu" alt="" align="middle"></td><td class="dx" style="padding-left:0px;"><span id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_TL">Loading…</span></td>
+	</tr>
+</tbody></table><div id="ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning_LD" class="dxpcLoadingDiv dxlpLoadingDiv dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+</div><script id="dxss_1999056923" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning',[[['dxpc-closeBtnHover'],[''],['HCB-1']]]);
+ASPx.createControl(ASPxClientPopupControl,'ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning','ContactSearchWarning',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$MainContentPlaceHolder$ContactSearchWarning',arg,ASPx.Callback,'ctl00_ctl00_MainContentPlaceHolder_ContactSearchWarning',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$MainContentPlaceHolder$ContactSearchWarning','popupAnimationType':'fade','allowResize':true,'closeAction':'CloseButton','popupHorizontalAlign':'WindowCenter','popupVerticalAlign':'WindowCenter','isPopupPositionCorrectionOn':false,'allowDragging':true,'modal':true,'width':300,'widthFromServer':true,'height':200,'contentOverflowX':'Auto','contentOverflowY':'Auto'});
+
+//-->
+</script>
+            
+    
+
+    
+    <style type="text/css">
+        
+        #overlay {
+            visibility: hidden;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            z-index: 1000;
+            background-color: rgba(128,128,128,0.5);
+            /*IE6-9 support*/
+            filter: progid:DXImageTransform.Microsoft.gradient(startColorstr=#40100200, endColorstr=#40100200);
+        }
+
+        #modal-box {
+            clear: both;
+            margin: 250px auto;
+            height: 170px;
+            width: 250px;
+            border: 1px solid black;
+            border-radius: 5px;
+            background-color: white;
+        }
+
+            /*IE9 only support*/
+            #modal-box:not([dummy]) {
+                filter: progid:DXImageTransform.Microsoft.gradient(enable='false');
+            }
+
+        #overlay div p {
+            padding: 9px;
+        }
+
+        #overlay div a {
+            margin-left: 10px;
+        }
+
+        .customerConfirm {
+            display: none;
+        }
+
+        .jobConfirm {
+            display: none;
+        }
+    </style>
+    
+  
+    <script type="text/javascript">
+        var contactId = "";
+        
+        Sys.Application.add_load(function () {
+
+            toolTipInit('AddLeadTooltipImg', 'AddLeadTooltipDivText');
+
+            $(".contact_DetailsGridView th").each(function () {
+                if (!$(this).hasClass('GridViewHeaderSortD') && !$(this).hasClass('GridViewHeaderSortA')) {
+                    $("<img src='images/UnsortedBlue.png' />").insertAfter($(this).children('a'));
+                } else if ($(this).hasClass('GridViewHeaderSortD')) {
+                    $("<img style=\"padding-left: 4px;\" src='images/ArrowUpBlue.gif' />").insertAfter($(this).children('a'));
+                    $(this).children('a').css('vertical-align', 'middle');
+                } else if ($(this).hasClass('GridViewHeaderSortA')) {
+                    $("<img style=\"padding-left: 4px;\" src='images/ArrowDownBlue.gif' />").insertAfter($(this).children('a'));
+                    $(this).children('a').css('vertical-align', 'middle');
+                }
+            });
+
+            var type = getParameterByName("contactType");
+            var primaryColor;
+            if (type === "3" || type === "4") {
+                primaryColor = "#A5C9B0";
+            }
+            else if (type === "1") {
+                primaryColor = "#7FA9D2";
+            }
+            else {
+                primaryColor = "#F6959B";
+            }
+
+            $(".modalHeader").css("background-color", primaryColor);
+            $(".popupPanel").css("border-top-color", primaryColor);
+
+            contactId = "";
+        });
+
+        redirectToPage = function (url) {
+            void (window.open(url, "child_window"));
+            return false;
+        }
+
+        function HandleNoContactLoaded() {
+
+            if (window.name == "" && parent.window.name == "") {
+                $(document).ready(function () {
+                    if ($("[id$='WalkThroughTemplateDropDownList']").length > 0) {
+                        $("[id$='WalkThroughTemplateDropDownList']").val($("[id$='WalkThroughTemplateDropDownList'] option").first().val());
+                        window.name = "";
+                    } else if ($("[id$='WalkThroughTemplateDropDownList']", parent.document).length > 0) {
+                        $("[id$='WalkThroughTemplateDropDownList']", parent.document).val($("[id$='WalkThroughTemplateDropDownList'] option").first().val());
+                        window.parent.name = "";
+                    }
+                    document.cookie = "NextStepGuide=;expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+                })
+            }
+
+            var selectedVal = $("[id$='WalkThroughTemplateDropDownList'] :selected").text();
+            window.name = selectedVal
+            var intro = introJs();
+            intro.setOptions({
+                steps: [
+                    {
+                        element: "[id$='FilterDropDownList']",
+                        intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">!</span></span><div>It appears that there are not any contacts ready to be viewed through the filter.  Please make a selection to load the contacts then choose the Walk Through Guide.</div>",
+                        position: 'bottom'
+                    }
+                ],
+                showStepNumbers: false,
+                showBullets: false,
+                scrollToElement: true,
+                doneLabel: 'Cancel Guide'
+            });
+
+            intro.onexit(function () {
+                if ($("[id$='WalkThroughTemplateDropDownList']").length > 0) {
+                    $("[id$='WalkThroughTemplateDropDownList']").val($("[id$='WalkThroughTemplateDropDownList'] option").first().val());
+                    window.name = "";
+                } else if ($("[id$='WalkThroughTemplateDropDownList']", parent.document).length > 0) {
+                    $("[id$='WalkThroughTemplateDropDownList']", parent.document).val($("[id$='WalkThroughTemplateDropDownList'] option").first().val());
+                    window.parent.name = "";
+                }
+                document.cookie = "NextStepGuide=;expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+            })
+                .start();
+
+            $("[id$='FilterDropDownList']").on("click", function () {
+                $('.introjs-skipbutton').trigger("click");
+            });
+        }
+
+        function setSourceTextBox(source) {
+            document.getElementById("ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_SourceTextBox").value = source;
+            return true;
+        }
+
+        function SaveContactTagState_Result(ResultString) {
+            var taggedCheckbox = $("#ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_RecordTaggedCheckBox");
+            var taggedCheckboxLabel = $("#ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_RecordTaggedLabel");
+
+            if (taggedCheckbox.is(":checked")) {
+                taggedCheckboxLabel.text("Tagged");
+            }
+            else {
+                taggedCheckboxLabel.text("Untagged");
+            }
+        }
+
+        function showLoadingPanel() {
+            LoadingPanel.Show();
+        }
+
+        function showConversationPopup() {
+            if (!(typeof conversationPopup === 'undefined') && conversationPopup && conversationPopup.IsVisible() && !conversationPopup.GetCollapsed()) {
+                conversationPopup.Hide();
+            }
+            else {
+                getContactByContactId(contactId)
+                    .then((res) => {
+                        var contactName = res[0].firstName + " " + res[0].lastName;
+                        displayConversationPopup(contactId, contactName);
+                    })
+                    .catch((error) => {
+                        displayConversationPopup(contactId, "Unknown");
+                    })
+            }
+        }
+
+
+    </script>
+   <div class="contentHeaderWrapper">
+    <table class="dxlpLoadingPanel dxlpControl" cellspacing="0" cellpadding="0" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_LoadingPanel" border="0" style="border-collapse:collapse;position:absolute;left:0px;top:0px;z-index:30000;display:none;">
+	<tbody><tr>
+		<td class="dx" style="padding-right:0px;"><img class="dxlp-loadingImage dxlp-imgPosLeft" src="/DXR.axd?r=1_89-rHQiu" alt="" align="middle"></td><td class="dx" style="padding-left:0px;"><span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_LoadingPanel_TL">Loading</span></td>
+	</tr>
+</tbody></table><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_LoadingPanel_LD" class="dxlpLoadingDiv dxlpControl dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+</div><script id="dxss_699926125" type="text/javascript" data-executed="true">
+<!--
+ASPx.createControl(ASPxClientLoadingPanel,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_LoadingPanel','LoadingPanel',{'uniqueID':'ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$LoadingPanel','containerElementID':'content'});
+
+//-->
+</script>
+    <span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_ToolbarUpdatePanel">
+            <div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_NoContactPanel" class="warningDiv">
+	
+                <span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_NoContactLabel">Use Quick Find to find a contact, click Add New Customer to add a new customer, or select a filter.</span>
+            
+</div>
+            <table style="width: 100%; border-spacing: 0;">
+                <tbody><tr>
+                    <td style="padding-bottom: 4px;">
+                        <table style="width: 100%; padding: 0; border-spacing: 0;">
+                            <tbody><tr>
+                                <td style="text-align: left;">
+                                    <span style="font-weight: bold;">Filter</span>
+                                    <select name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$FilterDropDownList" onchange="showLoadingPanel();setSourceTextBox('FilterDropDownList');setTimeout('__doPostBack(\'ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$FilterDropDownList\',\'\')', 0)" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_FilterDropDownList" style="width:175px;margin-left: 4px;">
+	<option selected="selected" value="">[No Filter Selected]</option>
+	<option value="6"> -- All Customers -- </option>
+	<option value="3"> -- Tagged Customers -- </option>
+	<option value="0517644d-a568-41ca-b4b4-059c4fd6f0c5">Bath Customers 2024-25</option>
+	<option value="be92463d-3e87-489b-ae7c-73cdf024538a">Current Jobs by Product</option>
+	<option value="80bba0f0-2fc1-445e-b41f-a69acc067de7">Current Jobs by Trade</option>
+	<option value="9ec3ad0a-b42f-4b13-85a7-a7222c7252be">DE Current Jobs</option>
+	<option value="f5a4c413-e74d-4e49-b769-7481d53825ab">Empty Job Type</option>
+	<option value="a7a5dfb9-c5cf-4c7c-a7c8-565377868c35">GAF Warranties DE</option>
+	<option value="9e22f4fe-6e2e-4684-ad3d-c943e8e8efcd">GAF Warranties MD</option>
+	<option value="06d65820-a4d2-41a0-90b8-db3164b6dd19">Gutter &amp; GH In Progress</option>
+	<option value="3227dc78-0aa7-46b1-a5fa-e3d8490c4703">Jobs in Progress</option>
+	<option value="99f8c475-6cf0-42f9-8af2-431d9b1479ae">MD Current Jobs</option>
+	<option value="8fb25284-bb04-41b2-81eb-6f53a97eb72b">Pending Contracts</option>
+	<option value="3898cc86-e886-4b5d-8e8e-2cf575647d01">Previous Week installs</option>
+	<option value="4f36f7e1-280c-4d45-839b-163e1b6f5b8e">Project Manager's Jobs</option>
+	<option value="bf6bd73d-9fe6-4a2d-806f-87a2dc230f36">Roof Customers 2024-25</option>
+	<option value="41123d4a-0671-4d26-93cd-8d4db128ca6d">Service - Product Interest</option>
+	<option value="a04f6fdb-4621-4779-8829-5b9975ed0103">Service Jobs</option>
+	<option value="fdfc9f61-d8ed-4165-8e78-71b1fa2065e1">Service Jobs</option>
+	<option value="c8408a5c-808a-44bc-bf9b-204df27d8f6d">Service-2025</option>
+	<option value="e0ea43ae-26cf-4b95-b106-0297b2aa78b4">Total Backlog</option>
+	<option value="5cf73659-408d-4485-b0b7-185447e9dfa6">VA Yearly Jobs</option>
+	<option value="9e7d8682-4f0f-4326-a6d4-cc1d6aa5268a">Warranty-2025</option>
+
+</select>
+                                    
+                                </td>
+                                <td style="text-align: right;">
+                                    <span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintLabel" class="formFieldLabel">Quick&nbsp;Print</span>
+                                    <select name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintDropDownList" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintDropDownList" style="width:175px;">
+	<option selected="selected" value=""></option>
+
+</select>
+                                    <input type="image" name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$DownloadPdfImageButton" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DownloadPdfImageButton" title="Download as PDF" src="images/PDF.png" style="border-width: 0px; display: inline-block; vertical-align: middle;">
+                                </td>
+                            </tr>
+                        </tbody></table>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <table style="width: 100%; padding: 0; border-spacing: 0;">
+                            <tbody><tr>
+                                <td style="text-align: left;">
+                                    <input name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$SourceTextBox" type="text" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_SourceTextBox" style="display: none;">
+                                    
+                                    
+                                    
+                                    
+                                    
+                                </td>
+                                <td style="text-align: right;">
+                                    
+                                    <div id="AddLeadTooltipDivText" class="pop-upInfo" style="display: none; text-align: left; z-index:99;">
+                                        This feature is intended for your staff that is receiving, engaging, and coordinating directly with customers.<br>
+                                        <br>
+                                        This allows you to standardize your communication script, language, and data collection.<br>
+                                        <br>
+                                        <a onclick="return redirectToPage('../Admin/CallOutScriptMaintenance.aspx');" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickLeadEntryTooltipLink" class="link" href="javascript:__doPostBack('ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickLeadEntryTooltipLink','')">Click here</a> to configure this.<br>
+                                    </div>
+                                    
+                                    
+                                    
+
+                                    <input type="submit" name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$AddContactButton" value="Add New Customer" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_AddContactButton" class="inputButton" style="">
+                                    
+                                    
+                                    <div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_PW-1" class="dxpcLite dxpclW dxpc-mainDiv dxpc-shadow" style="width:200px;z-index:10000;display:none;visibility:hidden;">
+	<div class="dxpc-header dxpc-withBtn" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_PWH-1">
+		<div class="dxpc-closeBtn" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_HCB-1">
+			<img class="dxWeb_pcCloseButton" src="/DXR.axd?r=1_89-rHQiu" alt="Close">
+		</div><div class="dxpc-headerContent">
+			<span class="dxpc-headerText dx-vam" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_PWH-1T">Confirm Delete</span>
+		</div><b class="dx-clear"></b>
+	</div><div class="dxpc-contentWrapper">
+		<div class="dxpc-content" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_PWC-1">
+			
+                                                <div style="text-align: left; width: 390px;">
+                                                    <p>By deleting the contact, you will permanently delete all of their information including but not limited to appointments, inquiries, estimates, and job information.</p>
+                                                    <p>If you are sure you want to permanently delete this contact, please type "<span id="deleteConfirmationText">Delete contact</span>" into the textbox.</p>
+                                                    <div onkeypress="javascript:return WebForm_FireDefaultButton(event, 'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_ConfirmDeleteButton')">
+				
+                                                        <input id="deleteConfirmationTextInput" type="text" style="width: 385px;">
+                                                    
+			</div>
+                                                    <img id="deleteConfirmationErrorImage" src="images/error.png" alt="Error!" style="display: none;" title="The entered text doesn't match the sentence.">
+                                                    <div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_footer" class="modalUserControlFooter">
+                                                        <input type="submit" name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$DeleteConfirmationPopupControl$ConfirmDeleteButton" value="Confirm" onclick="if ($('#deleteConfirmationText').text() == $('#deleteConfirmationTextInput').val()) { DeleteConfirmationPopupControl.Hide(); return true; } else { $('#deleteConfirmationErrorImage').show(); return false; };" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_ConfirmDeleteButton" tabindex="100" class="inputButton" style="">
+                                                        <input id="CancelButton" tabindex="101" class="secondaryButton" onclick="DeleteConfirmationPopupControl.Hide();" type="button" value="Cancel" style="">
+                                                    </div>
+                                                </div>
+                                            
+		</div>
+	</div>
+</div><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_DXPWMB-1" class="dxpcModalBackLite" style="z-index:9999;">
+
+</div><table id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_LP" class="dxpcLoadingPanel dxlpLoadingPanel" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;left:0px;top:0px;z-index:30000;display:none;">
+	<tbody><tr>
+		<td class="dx" style="padding-right:0px;"><img class="dxlp-loadingImage dxlp-imgPosLeft" src="/DXR.axd?r=1_89-rHQiu" alt="" align="middle"></td><td class="dx" style="padding-left:0px;"><span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_TL">Loading…</span></td>
+	</tr>
+</tbody></table><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl_LD" class="dxpcLoadingDiv dxlpLoadingDiv dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+</div><script id="dxss_1465484968" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl',[[['dxpc-closeBtnHover'],[''],['HCB-1']]]);
+ASPx.createControl(ASPxClientPopupControl,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl','DeleteConfirmationPopupControl',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$DeleteConfirmationPopupControl',arg,ASPx.Callback,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_DeleteConfirmationPopupControl',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$DeleteConfirmationPopupControl','enableAnimation':false,'popupHorizontalAlign':'WindowCenter','popupVerticalAlign':'WindowCenter','isPopupPositionCorrectionOn':false,'modal':true},{'Closing':function(s,e) { $('#deleteConfirmationTextInput').val(''); $('#deleteConfirmationErrorImage').hide(); }});
+
+//-->
+</script>
+                                    <div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_PW-1" class="dxpcLite dxpclW dxpc-mainDiv dxpc-shadow" style="width:200px;z-index:10000;display:none;visibility:hidden;">
+	<div class="dxpc-header dxpc-withBtn" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_PWH-1">
+		<div class="dxpc-closeBtn" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_HCB-1">
+			<img class="dxWeb_pcCloseButton" src="/DXR.axd?r=1_89-rHQiu" alt="Close">
+		</div><div class="dxpc-headerContent">
+			<span class="dxpc-headerText dx-vam" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_PWH-1T">Unable to Delete</span>
+		</div><b class="dx-clear"></b>
+	</div><div class="dxpc-contentWrapper">
+		<div class="dxpc-content" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_PWC-1">
+			
+                                                <div style="text-align: left; width: 390px;">
+                                                    <p>You are unable to delete this contact for the following reasons:</p>
+                                                    <p><span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_lblDeleteErrorMessages"></span></p>
+                                                </div>
+                                                <div class="modalUserControlFooter">
+                                                    <input id="btnDeleteErrorOk" tabindex="101" class="inputButton" onclick="pcDeleteError.Hide();" type="button" value="Ok" style="">
+                                                </div>
+                                            
+		</div>
+	</div>
+</div><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_DXPWMB-1" class="dxpcModalBackLite" style="z-index:9999;">
+
+</div><table id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_LP" class="dxpcLoadingPanel dxlpLoadingPanel" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;left:0px;top:0px;z-index:30000;display:none;">
+	<tbody><tr>
+		<td class="dx" style="padding-right:0px;"><img class="dxlp-loadingImage dxlp-imgPosLeft" src="/DXR.axd?r=1_89-rHQiu" alt="" align="middle"></td><td class="dx" style="padding-left:0px;"><span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_TL">Loading…</span></td>
+	</tr>
+</tbody></table><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError_LD" class="dxpcLoadingDiv dxlpLoadingDiv dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+</div><script id="dxss_733192615" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError',[[['dxpc-closeBtnHover'],[''],['HCB-1']]]);
+ASPx.createControl(ASPxClientPopupControl,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError','pcDeleteError',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$pcDeleteError',arg,ASPx.Callback,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_pcDeleteError',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$pcDeleteError','enableAnimation':false,'popupHorizontalAlign':'WindowCenter','popupVerticalAlign':'WindowCenter','isPopupPositionCorrectionOn':false,'modal':true});
+
+//-->
+</script>
+                                    
+                                </td>
+                            </tr>
+                        </tbody></table>
+                    </td>
+                </tr>
+            </tbody></table>
+            
+        </span>
+    
+    
+    <div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalUpdatePanel">
+	
+            <div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_PW-1" class="dxpcLite dxpclW dxpc-mainDiv dxpc-shadow" style="width:200px;z-index:10000;display:none;visibility:hidden;">
+		<div class="dxpc-header drag dxpc-withBtn" style="color:White;background-color:#999999;font-weight:bold;-webkit-user-select:none;" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_PWH-1">
+			<div class="dxpc-closeBtn" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_HCB-1">
+				<img class="dxWeb_pcCloseButton" src="/DXR.axd?r=1_89-rHQiu" alt="Close">
+			</div><div class="dxpc-headerContent">
+				<span class="dxpc-headerText dx-vam" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_PWH-1T">Quick Print</span>
+			</div><b class="dx-clear"></b>
+		</div><div class="dxpc-contentWrapper">
+			<div class="dxpc-content" style="padding-left:0px;padding-right:0px;padding-top:0px;padding-bottom:0px;" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_PWC-1">
+				
+                        <div style="margin: 10px;">
+                            
+                            
+                            <div id="confirmContactListScrollGrid" style="max-height: 600px; overflow: auto;">
+                                
+                                <div>
+
+				</div>
+                            </div>
+                            <div>
+                                <p>
+                                    <span onkeydown="return (event.keyCode!=13);"><input id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_LogActivityCheckBox" type="checkbox" name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl$LogActivityCheckBox" style=""><label for="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_LogActivityCheckBox">Log Activity</label></span>
+                                </p>
+                            </div>
+                            <div id="modalUserControlFooter" style="clear: both;">
+                                <input type="button" name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl$DownloadPDFButton" value="Download PDF" onclick="QuickPrintModalControl.Hide();__doPostBack('ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl$DownloadPDFButton','')" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_DownloadPDFButton" class="inputButton" style="">
+                                <input type="button" name="ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl$QuickPrintModalDoneButton" value="Cancel" onclick="$('html').css('overflow', ''); $('body').css('overflow', '');__doPostBack('ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl$QuickPrintModalDoneButton','')" id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_QuickPrintModalDoneButton" class="inputButton" style="">
+                            </div>
+                        </div>
+                    
+			</div>
+		</div>
+	</div><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_DXPWMB-1" class="dxpcModalBackLite" style="z-index:9999;">
+
+	</div><table id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_LP" class="dxpcLoadingPanel dxlpLoadingPanel" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;left:0px;top:0px;z-index:30000;display:none;">
+		<tbody><tr>
+			<td class="dx" style="padding-right:0px;"><img class="dxlp-loadingImage dxlp-imgPosLeft" src="/DXR.axd?r=1_89-rHQiu" alt="" align="middle"></td><td class="dx" style="padding-left:0px;"><span id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_TL">Loading…</span></td>
+		</tr>
+	</tbody></table><div id="ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl_LD" class="dxpcLoadingDiv dxlpLoadingDiv dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+	</div><script id="dxss_1254203062" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl',[[['dxpc-closeBtnHover'],[''],['HCB-1']]]);
+ASPx.createControl(ASPxClientPopupControl,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl','QuickPrintModalControl',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl',arg,ASPx.Callback,'ctl00_ctl00_MainContentPlaceHolder_ContentPlaceHolder2_QuickPrintModalControl',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$MainContentPlaceHolder$ContentPlaceHolder2$QuickPrintModalControl','enableAnimation':false,'allowResize':true,'closeAction':'CloseButton','popupHorizontalAlign':'WindowCenter','popupVerticalAlign':'WindowCenter','isPopupPositionCorrectionOn':false,'allowDragging':true,'modal':true});
+
+//-->
+</script>
+        
+</div>
+       </div>
+    <script type="text/javascript" src="scripts/ModalService/MarketingQueueAlertRedirect.js"></script>
+
+        </div>
+    </div>
+
+
+            
+        </div>
+        
+<div id="footer" class="footer">
+    <a id="ctl00_ctl00_ctl13_viewSubscriptionAgreementHyperLink" href="docs/MarketSharp-Terms-and-Conditions.pdf" target="_blank">Subscription Agreement</a>&nbsp;&nbsp;|&nbsp;&nbsp;
+    <a href="https://www.marketsharp.com/privacy-policy/" target="_blank">Privacy Policy</a>&nbsp;&nbsp;|&nbsp;&nbsp;
+    <a href="https://www.marketsharp.com/contact-us/" target="_blank">Contact Us</a>&nbsp;&nbsp;|&nbsp;&nbsp;
+    Contact Technical Support:  1-800-596-4368
+    <br>
+    <span style="color: #F7F7F7;">Server: IIS-PRIVATE-A2</span>
+    <span style="color: #F7F7F7"><span id="ctl00_ctl00_ctl13_lblBuild">0.0.0.0</span></span>
+    <span class="serverNameSpacingCorrection copyrightText">Copyright© <script type="text/javascript">document.write(new Date().getFullYear())</script>2026 by Advanced Marketing Concepts, Ltd All Rights Reserved</span>
+</div>
+        <div id="ConversationsListAreaDiv" class="conversation-list-area" style="right: 215px;">
+            <div id="conversationsListPopupArea"></div>
+            <div id="RecentConversationsPopupControl_PW-1" class="dxpcLite dxpclW" style="width: 300px; z-index: 12000; visibility: visible; display: table; position: absolute; left: 0px; top: -43px;">
+	<div class="dxpc-mainDiv dxpc-shadow" style="border-width:0px;">
+		<div class="dxpc-header dxpc-withBtn" style="color:Black;background-color:#F7F7F7;border-color:#E6E6E6;border-width:1px;border-style:Solid;font-size:1.2em;font-weight:bold;text-decoration:underline;padding-left:18px;padding-right:5px;padding-top:2px;padding-bottom:6px;" id="RecentConversationsPopupControl_PWH-1">
+			<div class="dxpc-collapseBtn dxpc-collapseBtnChecked dxh0s" style="padding-right:5px;padding-top:10px;" id="RecentConversationsPopupControl_HMNB-1">
+				<img id="RecentConversationsPopupControl_HMNB-1Img" src="images/ArrowMoveUp.png" alt="Collapse/Expand" savedselectedstateitemsrc="images/ArrowMoveDown.png">
+			</div><div class="dxpc-refreshBtn" style="padding-right:5px;padding-top:10px;" id="RecentConversationsPopupControl_HRB-1">
+				<img src="images/ArrowRefreshSmall.png" alt="Refresh">
+			</div><div class="dxpc-headerContent" style="margin-left: 0px; margin-right: 50px; line-height: 27px; height: 31px;">
+				<span class="dxpc-headerText dx-vam" id="RecentConversationsPopupControl_PWH-1T"><span style="color:#1f79e0; margin-bottom: 2px;">(0)</span><span style="margin-left:20px; margin-bottom: 2px;">Text Chats</span><img src="/images/icons8-search-18.png" class="conversations-search-btn" alt="search conversations" id="conversationSearchIcon" onclick="toggleConversationSearchBar();"></span>
+			</div><b class="dx-clear"></b>
+		</div><div class="dxpc-contentWrapper" style="display: none;">
+			<div class="dxpc-content" style="border-color: rgb(230, 230, 230); border-width: 1px; border-style: solid; padding: 0px; display: table-cell;" id="RecentConversationsPopupControl_PWC-1">
+				
+                        <div id="conversationsListDiv" class="conversations-list-wrapper">
+                            <img src="/images/indicator.gif" id="listLoadingIcon" class="list-loading-icon no-display" style="display: none;">
+                            <input id="conversationsSearchInput" class="inputText conversationsSearchBar" placeholder="Search conversations..." style="">
+                            <ol id="conversationsListContent" class="conversation-list-content"><li class="conversation-list-item"><a href="javascript:displayConversationPopup('2ebf5617-008e-490e-b2f6-1977cf27d38a', 'Kathryn Harris');"><div class="conversation-left"><div class="icon-initials">KH</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Kathryn Harris</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Kathryn, Thank you for choosing Spicer Bros. Construction/ Bath by Spicer and giving us a chance to earn your business.  It was great discussing the project you are considering. I am excited about the potential of working together! Please don't hesitate to reach out with any questions or concerns!  Once again, thank you for your interest, and I look forward to seeing you again soon!   Dustin Maddox  (443) 614-0647 Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('1a24357b-9c0c-4efc-a0c7-8eec92fec0be', 'Samantha Keyes');"><div class="conversation-left"><div class="icon-initials">SK</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Samantha Keyes</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Samantha this is Ashley at Spicer Bros. Construction I was touching base to see if you had made any decisions on home improvement project? Visit our website https://www.spicerbros.com Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('c4885448-a8e8-4ea2-a6e2-14c5699aa6cc', 'Michael &amp; Cheryl Montisano');"><div class="conversation-left"><div class="icon-initials">M&amp;</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Michael &amp; Cheryl Montisano</div><div class="header-date">May 12</div></div><div class="list-item-body">Michael &amp; Cheryl, first of all, thank you for choosing Spicer Bros. Construction/ Baths by Spicer Bros. for your new remodeling project.  The type(s) of home improvements you chose are becoming more and more popular and will be a great improvement to your home in many ways.  Hopefully you are as excited as we are to get started! The wheels are in motion here in preparation to complete your project. In the next few days, you will be receiving a call from your Production Coordinator. Please see below for the name of your production Coordinator that will be assisting you through this process. They will be reviewing your contract with you and answering any questions or concerns that you may have at that time. If you need to reach someone before you have spoken to them, please feel free to call 410-546-1190 press 2.    We'll be in touch soon with details on the next step in your project completion.  Thank you again for choosing Spicer Bros. Construction and Baths by Spicer Bros.!    Roofing, siding and Gutters/Gutter Helmet -  Khady Breasure Khady@spicerbros.com  Bathrooms - Joe Kirklow Joe.kirklow@spicerbros.com or Haille at Ext 220.  Sincerely,  Nate Quillin  (443) 223-2463   Spicer Bros. Construction/ Baths By Spicer Bros. (410) 546-1190 spicerbros.com Messaging data rates may apply.  HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('5d356a5d-20fb-4f6e-bf57-774fe8cdfb88', 'Nathaniel Sampson');"><div class="conversation-left"><div class="icon-initials">NS</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Nathaniel Sampson</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Nathaniel, it’s Ashley at Spicer Bros. We recently completed your  home improvement project and are glad you are happy with your new renovation! Could you please take a moment and leave a google review for us! It would be greatly appreciated. I have included the link to our Google page! Thanks again for choosing Spicer Bros for your remodel! https://g.page/SpicerBrosRoofingSalisbury/review?rc HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('6d34cca5-2858-4d5c-ae30-ed870be1fb55', 'Ed &amp; Lou Ann Hurst');"><div class="conversation-left"><div class="icon-initials">E&amp;</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Ed &amp; Lou Ann Hurst</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Ed &amp; Lou Ann, Thank you for choosing Spicer Bros. Construction/ Bath by Spicer and giving us a chance to earn your business.  It was great discussing the project you are considering. I am excited about the potential of working together! Please don't hesitate to reach out with any questions or concerns!  Once again, thank you for your interest, and I look forward to seeing you again soon!   Dustin Maddox  (443) 614-0647 Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('1c46c6da-8da4-41dc-8639-7390c87ad8dd', 'Cathy Schreiner &amp; Gary Turner');"><div class="conversation-left"><div class="icon-initials">CS</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Cathy Schreiner &amp; Gary Turner</div><div class="header-date">May 12</div></div><div class="list-item-body">Cathy Schreiner &amp; Gary, first of all, thank you for choosing Spicer Bros. Construction/ Baths by Spicer Bros. for your new remodeling project.  The type(s) of home improvements you chose are becoming more and more popular and will be a great improvement to your home in many ways.  Hopefully you are as excited as we are to get started! The wheels are in motion here in preparation to complete your project. In the next few days, you will be receiving a call from your Production Coordinator. Please see below for the name of your production Coordinator that will be assisting you through this process. They will be reviewing your contract with you and answering any questions or concerns that you may have at that time. If you need to reach someone before you have spoken to them, please feel free to call 410-546-1190 press 2.    We'll be in touch soon with details on the next step in your project completion.  Thank you again for choosing Spicer Bros. Construction and Baths by Spicer Bros.!    Roofing, siding and Gutters/Gutter Helmet -  Khady Breasure Khady@spicerbros.com  Bathrooms - Joe Kirklow Joe.kirklow@spicerbros.com or Haille at Ext 220.  Sincerely,  Jordan Bradford  (443) 880-3158   Spicer Bros. Construction/ Baths By Spicer Bros. (410) 546-1190 spicerbros.com Messaging data rates may apply.  HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('ef4aa8cc-a869-44dc-bf8d-2a82344680bb', 'Dana Vanlandingham');"><div class="conversation-left"><div class="icon-initials">DV</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Dana Vanlandingham</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Dana, Thank you for choosing Spicer Bros. Construction/ Bath by Spicer and giving us a chance to earn your business.  It was great discussing the project you are considering. I am excited about the potential of working together! Please don't hesitate to reach out with any questions or concerns!  Once again, thank you for your interest, and I look forward to seeing you again soon!   Dustin Maddox  (443) 614-0647 Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('a1221809-ac97-40bb-9ef0-5b7669da5f41', 'Michael Sale');"><div class="conversation-left"><div class="icon-initials">MS</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Michael Sale</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Michael Thank you for your interest in Spicer Bros. Construction and Baths by Spicer Bros.! We're looking forward to helping you decide if we're the right fit for your next home improvement project. Shortly, a customer service advisor will be following up with you to learn more about your plans and answer any specific questions you may have. During normal business hours. In the meantime, if you prefer not to respond to this text feel free to email or call us directly  at 410-546-1190 to promptly learn more information about our services. Also visit our website https://www.spicerbros.com/ and Facebook page to learn more about SBC.  Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('4c80b90f-d9e5-4fa6-bb5c-65e909e637ca', 'James Hastings');"><div class="conversation-left"><div class="icon-initials">JH</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">James Hastings</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi James Thank you for your interest in Spicer Bros. Construction and Baths by Spicer Bros.! We're looking forward to helping you decide if we're the right fit for your next home improvement project. Shortly, a customer service advisor will be following up with you to learn more about your plans and answer any specific questions you may have. During normal business hours. In the meantime, if you prefer not to respond to this text feel free to email or call us directly  at 410-546-1190 to promptly learn more information about our services. Also visit our website https://www.spicerbros.com/ and Facebook page to learn more about SBC.  Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('1076ce10-59b6-45c9-a04c-d5c51f9331aa', 'Don Levin');"><div class="conversation-left"><div class="icon-initials">DL</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Don Levin</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Don, Thank you for choosing Spicer Bros. Construction/ Bath by Spicer and giving us a chance to earn your business.  It was great discussing the project you are considering. I am excited about the potential of working together! Please don't hesitate to reach out with any questions or concerns!  Once again, thank you for your interest, and I look forward to seeing you again soon!   Nate Quillin  (443) 223-2463 Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('ddebb517-5a4a-4a6a-b50f-9f997d4f4dd1', 'Harry Haag');"><div class="conversation-left"><div class="icon-initials">HH</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Harry Haag</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Harry, Thank you for choosing Spicer Bros. Construction/ Bath by Spicer and giving us a chance to earn your business.  It was great discussing the project you are considering. I am excited about the potential of working together! Please don't hesitate to reach out with any questions or concerns!  Once again, thank you for your interest, and I look forward to seeing you again soon!   Chris Des Marais  (443) 235-4552 Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('22c31fb9-4bc1-489f-a8a9-5fbdca5ebb31', 'Brian Shockley');"><div class="conversation-left"><div class="icon-initials">BS</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Brian Shockley</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Brian, Thank you for choosing Spicer Bros. Construction/ Bath by Spicer and giving us a chance to earn your business.  It was great discussing the project you are considering. I am excited about the potential of working together! Please don't hesitate to reach out with any questions or concerns!  Once again, thank you for your interest, and I look forward to seeing you again soon!   Wesley Rogers  (443) 497-9630 Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('0c54a9b8-c792-4224-9622-fb759cb2a2c2', 'Zachary &amp; Stacey Reid');"><div class="conversation-left"><div class="icon-initials">Z&amp;</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Zachary &amp; Stacey Reid</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Zachary &amp; Stacey, this is Brianna Wright with Baths by Spicer Bros. in Salisbury MD. First I would like to say Thank You for giving Bath by Spicer Bros a chance to earn your business! We look forward to meeting with you on 5/13/2026 at 2:00 PM. Please remember to set aside 60-90 minutes whether we need it or not. If for any reason you can't make this day and time, please let me know ASAP. If you have any questions or need to reschedule please contact me at (410)546-1190 and press 1. Visit our website at Bathsbyspicerbros.com or like us on Facebook!   Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('0bb224c6-c0e3-410a-86fd-bd180b80fb86', 'Andre Green');"><div class="conversation-left"><div class="icon-initials">AG</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Andre Green</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Andre this is Ashley at Bath by Spicer Bros I was touching base to see if you had made any decisions on the bathroom project? Visit our website https://www.bathsbyspicerbros.com/ Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li><li class="conversation-list-item"><a href="javascript:displayConversationPopup('71e62b1e-d644-4d76-8403-5fadebef9320', 'Patricia Lysak');"><div class="conversation-left"><div class="icon-initials">PL</div></div><div class="conversation-right"><div class="list-item-header"><div class="header-name">Patricia Lysak</div><div class="header-date">May 12</div></div><div class="list-item-body">Hi Patricia, this is Nonyeia Sample with Spicer Bros. Construction in Salisbury MD. First I would like to say Thank You for giving Spicer Brothers a chance to earn your business! We look forward to meeting with you on 5/13/2026 at 5:00 PM. Please remember to set aside 60-90 minutes whether we need it or not. If for any reason you can't make this day and time, please let me know ASAP. If you have any questions or need to reschedule please contact me at (410)546-1190 and press 1. Visit our website at Spicerbros.com or like us on Facebook!   Messaging data rates may apply. HELP=help STOP=End msgs</div></div></a></li></ol></div>
+                    
+			</div>
+		</div>
+	</div>
+</div><script id="dxss_323033851" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('RecentConversationsPopupControl',[[['dxpc-refreshBtnHover'],['padding-top:10px;padding-right:5px;'],['HRB-1']],[['dxpc-collapseBtnHover'],['padding-top:10px;padding-right:5px;'],['HMNB-1']]]);
+ASPx.AddSelectedItems('RecentConversationsPopupControl',[[['dxpc-collapseBtnChecked'],['padding-top:10px;padding-right:5px;'],['HMNB-1'],,[['images/ArrowMoveUp.png']],['Img']]]);
+ASPx.createControl(ASPxClientPopupControl,'RecentConversationsPopupControl','conversationsListPopup',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$RecentConversationsPopupControl',arg,ASPx.Callback,'RecentConversationsPopupControl',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$RecentConversationsPopupControl','popupAnimationType':'fade','closeAction':'None','popupHorizontalAlign':'LeftSides','popupVerticalAlign':'BottomSides','isPopupPositionCorrectionOn':false,'top':-375,'width':300,'widthFromServer':true,'height':800,'showOnPageLoad':true,'defaultWindowPopupElementIDList':['conversationsListPopupArea'],'autoUpdatePosition':true,'isCollapsedInit':true},{'Init':onListInit,'EndCallback':conversationsList.loadConversations,'Shown':onListPopupShown,'AfterResizing':afterListResizing});
+
+//-->
+</script>
+        </div>
+        <div id="ConversationAreaDiv" class="conversation-panel-area" style="right: 485px;">
+            <div id="conversationPopupArea"></div>
+            <div id="ConversationPopupControl_PW-1" class="dxpcLite dxpclW" style="height:400px;width:325px;z-index:10000;display:none;visibility:hidden;">
+	<div class="dxpc-mainDiv dxpc-shadow" style="border-width:0px;">
+		<div class="dxpc-header dxpc-withBtn" style="color:Black;background-color:#F7F7F7;border-color:#E6E6E6;border-width:1px;border-style:Solid;font-size:1.2em;font-weight:bold;text-decoration:underline;padding-left:18px;padding-right:5px;padding-top:10px;padding-bottom:5px;" id="ConversationPopupControl_PWH-1">
+			<div class="dxpc-closeBtn" style="padding-right:5px;padding-top:2px;" id="ConversationPopupControl_HCB-1">
+				<img src="images/ErrorBlue.png" alt="Close">
+			</div><div class="dxpc-collapseBtn" style="padding-right:5px;padding-top:2px;" id="ConversationPopupControl_HMNB-1">
+				<img id="ConversationPopupControl_HMNB-1Img" src="images/ArrowMoveDown.png" alt="Collapse/Expand">
+			</div><div class="dxpc-refreshBtn" style="padding-right:5px;padding-top:2px;" id="ConversationPopupControl_HRB-1">
+				<img src="images/ArrowRefreshSmall.png" alt="Refresh">
+			</div><div class="dxpc-headerContent">
+				<span class="dxpc-headerText dx-vam" id="ConversationPopupControl_PWH-1T"></span>
+			</div><b class="dx-clear"></b>
+		</div><div class="dxpc-contentWrapper">
+			<div class="dxpc-content" style="border-color:#E6E6E6;border-width:1px;border-style:Solid;padding-left:0px;padding-right:0px;padding-top:0px;padding-bottom:0px;" id="ConversationPopupControl_PWC-1">
+				
+                        <div id="conversationDiv" class="conversation-wrapper">
+                            <img src="/images/indicator.gif" id="chatLoadingIcon" class="loading-icon no-display">
+                            <div id="conversationContent" class="conversation-content"></div>
+                        </div>
+                    
+			</div>
+		</div><div class="dxpc-footer" id="ConversationPopupControl_PWF-1">
+			
+                    <div style="margin: 4px 10px 0 10px; padding-bottom: 8px;">
+                        <div style="padding-top: 3px; padding-right: 5px;">
+                            <textarea id="messageInput" name="messageInput" rows="2" class="input-text send-message-textbox" maxlength="1600" onsubmit="sendMessage()" style=""></textarea>
+                            <img src="/images/indicator.gif" id="inputLoadingIcon" class="input-loading-icon no-display">
+                        </div>
+                        <div class="conversation-footer">
+                            <div>
+                                <label>To: </label>
+                                <select id="phone-number-dropdown" name="ToPhoneNumber"></select>
+                            </div>
+                            <div>
+                                <div class="dxbButton dxbButtonSys dxbTSys" id="SendMessageButton" style="-webkit-user-select:none;padding-left:2px;padding-right:2px;padding-top:2px;padding-bottom:2px;">
+				<div class="dxb" id="SendMessageButton_CD">
+					<div class="dxb-hbc">
+						<input id="SendMessageButton_I" class="dxb-hb" value="Send Message" type="submit" name="ctl00$ctl00$ConversationPopupControl$TPCFm1$TC$SendMessageButton" readonly="readonly" style="">
+					</div><span class="dx-vam">Send Message</span>
+				</div>
+			</div><script id="dxss_381495745" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('SendMessageButton',[[['dxbButtonHover'],['padding-left:2px;padding-top:2px;padding-right:2px;padding-bottom:2px;'],[''],['','TC']]]);
+ASPx.AddPressedItems('SendMessageButton',[[['dxbButtonPressed'],['padding-left:2px;padding-top:2px;padding-right:2px;padding-bottom:2px;'],[''],['','TC']]]);
+ASPx.AddDisabledItems('SendMessageButton',[[['dxbDisabled'],[''],[''],['','TC']]]);
+ASPx.AddSelectedItems('SendMessageButton',[[['dxbf'],[''],['CD']]]);
+ASPx.InitializeSVGSprite();
+ASPx.createControl(ASPxClientButton,'SendMessageButton','',{'uniqueID':'ctl00$ctl00$ConversationPopupControl$TPCFm1$TC$SendMessageButton'},{'Click':function(s, e) { sendMessage(); }});
+
+//-->
+</script>
+                            </div>
+                        </div>
+                    </div>
+                
+		</div>
+	</div>
+</div><table id="ConversationPopupControl_LP" class="dxpcLoadingPanel dxlpLoadingPanel" cellspacing="0" cellpadding="0" border="0" style="background-color:Transparent;border-style:None;border-collapse:collapse;left:0px;top:0px;z-index:30000;display:none;">
+	<tbody><tr>
+		<td class="dx"><img class="dxlp-imgPosLeft" src="images/indicator.gif" alt="" align="middle" style="height:20px;"></td>
+	</tr>
+</tbody></table><div id="ConversationPopupControl_LD" class="dxpcLoadingDiv dxlpLoadingDiv dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+</div><script id="dxss_1109597622" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('ConversationPopupControl',[[['dxpc-closeBtnHover'],['padding-top:2px;padding-right:5px;'],['HCB-1']],[['dxpc-refreshBtnHover'],['padding-top:2px;padding-right:5px;'],['HRB-1']],[['dxpc-collapseBtnHover'],['padding-top:2px;padding-right:5px;'],['HMNB-1']]]);
+ASPx.AddSelectedItems('ConversationPopupControl',[[['dxpc-collapseBtnChecked'],['padding-top:2px;padding-right:5px;'],['HMNB-1'],,[['images/ArrowMoveUp.png']],['Img']]]);
+ASPx.createControl(ASPxClientPopupControl,'ConversationPopupControl','conversationPopup',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$ConversationPopupControl',arg,ASPx.Callback,'ConversationPopupControl',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$ConversationPopupControl','popupAnimationType':'fade','closeAction':'CloseButton','popupHorizontalAlign':'LeftSides','popupVerticalAlign':'BottomSides','isPopupPositionCorrectionOn':false,'width':325,'widthFromServer':true,'height':400,'defaultWindowPopupElementIDList':['conversationPopupArea'],'autoUpdatePosition':true,'isCollapsedInit':true},{'Init':onChatInit,'EndCallback':conversation.loadMessages,'CloseButtonClick':onPopupClose,'Shown':onPopupShown,'AfterResizing':afterResizing});
+
+//-->
+</script>
+        </div>
+        <div>
+            <div id="edge-widget-opener">
+			    <button id="edge-open-button" onclick="ToggleEdgeWidgetClick(event)">
+				    <img id="edge-open-button-image" alt="Close Edge Widget" src="/images/EdgeIntegrationIcons/Panel_Open.png">
+			    </button>
+				    <img id="edge-logo" alt="Edge" src="/images/EdgeIntegrationIcons/Edge_Icon.svg">
+            </div>
+        </div>
+        <div id="ctl00_ctl00_ModalUpdatePanel">
+	
+                <div id="ctl00_ctl00_PopupModalControl_PW-1" class="dxpcLite dxpclW dxpc-mainDiv dxpc-shadow" settingsloadingpanel="true" style="width:200px;z-index:10000;display:none;visibility:hidden;">
+		<div class="dxpc-header drag dxpc-withBtn" style="color:White;font-weight:bold;-webkit-user-select:none;" id="ctl00_ctl00_PopupModalControl_PWH-1">
+			<div class="dxpc-closeBtn" id="ctl00_ctl00_PopupModalControl_HCB-1">
+				<img class="dxWeb_pcCloseButton" src="/DXR.axd?r=1_89-rHQiu" alt="Close">
+			</div><div class="dxpc-headerContent">
+				<span class="dxpc-headerText dx-vam" id="ctl00_ctl00_PopupModalControl_PWH-1T">Modal</span>
+			</div><b class="dx-clear"></b>
+		</div><div class="dxpc-contentWrapper">
+			<div class="dxpc-content" style="padding-left:0px;padding-right:0px;padding-top:0px;padding-bottom:0px;" id="ctl00_ctl00_PopupModalControl_PWC-1">
+				&nbsp;&nbsp;
+			</div>
+		</div>
+	</div><div id="ctl00_ctl00_PopupModalControl_DXPWMB-1" class="dxpcModalBackLite" style="z-index:9999;">
+
+	</div><table id="ctl00_ctl00_PopupModalControl_LP" class="dxpcLoadingPanel dxlpLoadingPanel" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;left:0px;top:0px;z-index:30000;display:none;">
+		<tbody><tr>
+			<td class="dx" style="padding-right:0px;"><img class="dxlp-loadingImage dxlp-imgPosLeft" src="/DXR.axd?r=1_89-rHQiu" alt="" align="middle"></td><td class="dx" style="padding-left:0px;"><span id="ctl00_ctl00_PopupModalControl_TL">Loading…</span></td>
+		</tr>
+	</tbody></table><div id="ctl00_ctl00_PopupModalControl_LD" class="dxpcLoadingDiv dxlpLoadingDiv dx-ft" style="left:0px;top:0px;z-index:29999;display:none;position:absolute;">
+
+	</div><script id="dxss_230944989" type="text/javascript" data-executed="true">
+<!--
+ASPx.AddHoverItems('ctl00_ctl00_PopupModalControl',[[['dxpc-closeBtnHover'],[''],['HCB-1']]]);
+ASPx.createControl(ASPxClientPopupControl,'ctl00_ctl00_PopupModalControl','PopupModalControl',{'callBack':function(arg) { WebForm_DoCallback('ctl00$ctl00$PopupModalControl',arg,ASPx.Callback,'ctl00_ctl00_PopupModalControl',ASPx.CallbackError,true); },'uniqueID':'ctl00$ctl00$PopupModalControl','enableAnimation':false,'allowResize':true,'closeAction':'CloseButton','popupHorizontalAlign':'WindowCenter','popupVerticalAlign':'WindowCenter','isPopupPositionCorrectionOn':false,'allowDragging':true,'modal':true,'hideBodyScrollWhenModal':false},{'Init':function(s, e) { PopupModalControl.SetVisible(false); },'CloseButtonClick':function(s,e){cancelModal()},'Shown':function(s, e) { var iframeTitle = $(s.GetContentIFrame()).attr('title');  $(s.GetContentIFrame()).attr('testStudioTag',iframeTitle); }});
+
+//-->
+</script>
+            
+</div>
+        <div id="ctl00_ctl00_WorkingUpdateProgress" style="display:none;" role="status" aria-hidden="true">
+	
+                <div class="workingOverlayPanel">
+                </div>
+                <div id="LoadingProgressTemplateWithCancel">
+                    <p align="center">
+                        <img style="padding-left: 5px;" alt="loading" src="/images/loadingGears.gif">
+                    </p>
+                    <p align="center">
+                        <span style="font-weight: bold; color: white; padding-left: 5px;" id="Message">Loading...</span>
+                    </p>
+                    <p align="center">
+                        <input class="cancelButton" id="ProgressCancelButton" type="button" value="Cancel" onclick=" abortTask()" style="">
+                    </p>
+                </div>
+            
+</div>
+
+        <script type="text/javascript">
+            Sys.Application.add_load(function () {
+                initializeSearch();
+                initializeChat();
+            });
+
+            function initializeChat() {
+                if (showChat && lastChatContactId) {
+                    conversationPopup.UpdatePosition();
+                    getContactByContactId(lastChatContactId)
+                        .then((res) => {
+                            var contactName = res[0].firstName + " " + res[0].lastName;
+                            displayConversationPopup(lastChatContactId, contactName, false);
+                        })
+                        .catch((error) => {
+                            console.log(error);
+                            displayConversationPopup(lastChatContactId, "Unknown");
+                        })
+                }
+                else {
+                    if (!(typeof conversationPopup === 'undefined') && conversationPopup) {
+                        conversationPopup.Hide();
+                    }
+                }
+            }
+
+            function initializeSearch() {
+                var autoCompletePosition = getSearchMenuPosition();
+
+                if (isV2()) {
+                    let searchTextBoxID;
+                    let searchResultsID;
+                    if (window.matchMedia('(max-width: 1300px)').matches) {
+                        searchTextBoxID = 'txtSearchBoxMobile';
+                        searchResultsID = 'searchResultsMobile';
+                    } else {
+                        searchTextBoxID = 'searchTextBox';
+                        searchResultsID = 'searchResults';
+                    }
+                    AutoCompleteSearchInit(searchTextBoxID, searchResultsID, autoCompletePosition, false);
+
+                } else {
+                    var $search = $('#searchTextBox');
+                    var $searchIcon = $('#searchIcon');
+                    var $searchMenu = $('.search-menu');
+
+                    if (window.matchMedia('(max-width: 1340px)').matches && window.matchMedia('(min-width: 1201px)').matches) {
+
+                        if ($searchMenu.hasClass('not-clickable')) {
+                            $searchMenu.removeClass('not-clickable');
+                            $searchIcon.on('click', openSearchBar);
+                        }
+                        $search.css('display', 'none');
+                    }
+                    else {
+                        if (!$searchMenu.hasClass('not-clickable')) {
+                            $searchMenu.addClass('not-clickable');
+                            $searchIcon.off('click', openSearchBar);
+                        }
+                        if ($search.hasClass('expandable-search-menu displayed')) {
+                            $search.removeClass('expandable-search-menu displayed');
+                        }
+                        $search.css('display', 'flex');
+                    }
+
+                    AutoCompleteSearchInit('searchTextBox', 'searchResults', autoCompletePosition, false);
+                }
+            }
+
+            function adjustChatSize() {
+                if(!(typeof conversationsListPopup === 'undefined') && conversationsListPopup){
+                    var listContentDiv = $('.conversation-list-content');
+                    if (window.matchMedia('(min-height: 900px)').matches) {
+                        conversationsListPopup.SetHeight(800);
+                        listContentDiv.height(800);
+                    }
+                    else if (window.matchMedia('(max-height: 899px)').matches && window.matchMedia('(min-height: 700px)').matches) {
+                        conversationsListPopup.SetHeight(600);
+                        listContentDiv.height(600);
+                    }
+                    else if (window.matchMedia('(max-height: 699px)').matches) {
+                        conversationsListPopup.SetHeight(500);
+                        listContentDiv.height(500);
+                    }
+                    else {
+                        conversationsListPopup.SetHeight(300);
+                        listContentDiv.height(300);
+                    }
+                    conversationsListPopup.UpdatePosition();
+                }
+            }
+
+            function openSearchBar() {
+                var $search = $('#searchTextBox');
+
+                if (!$search.hasClass('displayed')) {
+                    $search.addClass('expandable-search-menu displayed');
+                    $search.css('display', 'flex');
+                }
+                else {
+                    $search.removeClass('expandable-search-menu displayed');
+                    $search.css('display', 'none');
+                }
+                
+            }
+
+            function getSearchMenuPosition() {
+                var isV2Enabled = isV2();
+                var mediaQuery = isV2Enabled ? '(max-width: 1300px)' : '(max-width: 1200px)';
+
+                let autoCompletePosition;
+                if (window.matchMedia(mediaQuery).matches) {
+                    autoCompletePosition = { my: "left top", at: "right top", collision: "fit" }
+                } else {
+                    autoCompletePosition = { my: "left top", at: "left bottom", collision: "fit flip" }
+                }
+
+                return autoCompletePosition;
+            }
+
+            // scroll listener for conversations list to load additional records when scrolled to bottom
+            var $recentChatList = $('#conversationsListDiv');
+            var onScroll = debounce(function () {
+
+                var scrollTop = $recentChatList.scrollTop();
+                var scrollHeight = $('#conversationsListDiv').first().prop('scrollHeight');
+                var diff = scrollHeight - scrollTop;
+
+                if (diff <= $recentChatList.height()) {
+                    conversationsCount += 10;
+                    if (conversationsCount > 150) {
+                        conversatinosCount = 150;
+                    }
+                    if (!isSearchingConversations()) {
+                        conversationsList.loadConversations();
+                    }
+                    else {
+                        conversationsList.searchConversations($('#conversationsSearchInput').val());
+                    }
+                };
+
+            }, 100);
+            $recentChatList.on('scroll', onScroll);
+
+            // keyup listener for searching conversations
+            var $conversationSearch = $('#conversationsSearchInput');
+            var searchOnKeyUp = debounce(function () {
+                var inputVal = $conversationSearch.val();
+                if (inputVal) {
+                    conversationsList.searchConversations(inputVal);
+                }
+                else {
+                    conversationsList.loadConversations();
+                }
+
+            }, 200);
+            $conversationSearch.on('keyup', searchOnKeyUp);
+
+            $("#messageInput").on('keypress', function (e) {
+                if (e.which === 13 && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            //Debounce function returns new function that will delay the specified amount of time
+            function debounce(func, wait, immediate) {
+                var timeout;
+
+                return function executedFunction() {
+                    var context = this;
+                    var args = arguments;
+
+                    var later = function () {
+                        timeout = null;
+                        if (!immediate) func.apply(context, args);
+                    };
+
+                    var callNow = immediate && !timeout;
+
+                    clearTimeout(timeout);
+
+                    timeout = setTimeout(later, wait);
+
+                    if (callNow) func.apply(context, args);
+                };
+            }
+
+            function setTarget() {
+                 document.forms[0].target = "_blank";
+            }
+
+            //This handler is intended to close the main menu and sub menus when
+            //it is called. Removing the class force-sub-menu-display will hide sub 
+            //menus. Removing the class displayed resets the 'toggle' effect of opening
+            //submenus. The displayed class is effectively used to determine if the 
+            //submenu is showing or not so that clicking on it after it is shown results 
+            //in it being hidden
+            function closeMenu(evt) {
+                $menu.css("display", "none");
+                $('.sub-menu').removeClass('force-sub-menu-display');
+                $('.expandable-menu-item').removeClass('displayed');
+                $(window).off("click", closeMenu);
+            }
+
+            //If any element in the navigation header is selected we don't want to 
+            //close the menu and so we prevent events that were started in the navigation
+            //from propagating up to the window click handler.
+            $('#navigation-header').on('click', function (evt) {
+                evt.stopPropagation();
+            });
+
+            //This handles sub menus, and uses the class displayed as a status 'variable'
+            //and toggles the menu open and close for each click instance
+            // 2/14/2023 commenting code block. this code forces the menu to stay open when it is clicked. it unexpectedly causes the menu to stay open when clicking the help menu with no way to close it
+            // commenting block out fixes the bug with the menu staying open and makes it function like typical menus on the web that are expanded on mouse hover
+            //$('.expandable-menu-item').on('click', function (evt) {
+            //    evt.stopPropagation();
+            //    var $currentTarget = $(evt.currentTarget);
+            //    if ($currentTarget.hasClass('displayed')) {
+            //        $('.sub-menu').removeClass('force-sub-menu-display');
+            //        $currentTarget.removeClass('displayed');
+            //    } else {
+            //        $('.sub-menu').removeClass('force-sub-menu-display displayed');
+                   
+            //        $currentTarget.addClass('displayed');
+            //        $currentTarget.children('.sub-menu').addClass('force-sub-menu-display');
+            //    }                
+            //});
+            //$('.expandable-search-menu').on('click', function (evt) {
+            //    evt.stopPropagation();
+            //    var $currentTarget = $(evt.currentTarget);
+            //    if ($currentTarget.hasClass('displayed')) {
+            //        $('.sub-menu').removeClass('force-sub-menu-display');
+            //        $currentTarget.removeClass('displayed');
+            //    } else {
+            //        $('.sub-menu').removeClass('force-sub-menu-display displayed');
+            //        $currentTarget.addClass('displayed');
+            //        $currentTarget.children('.sub-menu').addClass('force-sub-menu-display');
+            //    }
+            //});
+
+            //This handles opening and closing the main menu when the hamburger icon is clicked
+            var $menu = $('.menu-container');
+            $('#mobileIcon').on('click', function (evt) {
+                evt.stopPropagation();
+                if ($menu.is(":hidden")) {
+                    $menu.css("display", "flex");
+                    $(window).on("click", closeMenu);
+                } else {
+                    closeMenu();
+                }
+            });
+
+            function isV2() {
+                return $('#hfHeaderVersion').val() == 'v2';
+            }
+
+            //The adjust menu function is intended to hide the menu items when in mobile view
+            //In desktop mode the menu always shows, but in mobile the hamburger icon needs
+            //to be clicked to display it and so this ensures that when mobile mode is entered
+            //the menu isn't displaying. The width set in the media query should match the width
+            //set in the css media query in navigation_menu_v9.css
+            var $window = $(window);
+            var adjustMenu = debounce(function () {
+                initializeSearch();
+                adjustChatSize();
+                var isV2Enabled = isV2();
+                var mediaQuery = '(max-width: 1300px)';
+                var edgeWidgetMediaQuery = '(max-width: 1715px)';
+                var formId = $('#aspnetForm')
+                if (window.matchMedia(mediaQuery).matches) {
+                    closeMenu();
+                } else if (formId[0].classList.contains("adjust-to-edge-widget") && window.matchMedia(edgeWidgetMediaQuery).matches) {
+                    $menu.css("display", "none");
+                } else {
+                    $menu.css("display", "flex");
+                }
+            }, 25);
+
+            //This calls the adjust menu function to check whether mobile or desktop mode should be being shown
+            $window.on("resize", adjustMenu);
+
+            
+            function getBodyScrollTop() {
+                var el = document.scrollingElement || document.documentElement;
+                return el.scrollTop
+            }
+
+            function amIE() {
+                return navigator.userAgent.indexOf("MSIE ") > -1 || navigator.userAgent.indexOf("Trident/") > -1;
+            }       
+
+            if (amIE()) {
+                $('.false-nav-background').hide();
+                $('#navigation-header').addClass("disable-nav-reappear");
+            }
+
+            //This section is started here if the user clicks the "x" in the upper right of the modal then the url remains the same.  
+            //This is called from the page_load event in the MarketSharpMain.Master.cs where the main modal container is
+            function cancelModal() {
+                
+                var loc = parent.location.toString();
+                var inquiryIdx = loc.lastIndexOf('&showInquiryModal=true');
+                var appointmentIdx = loc.lastIndexOf('&showAppointmentModal=true');
+
+
+                if (inquiryIdx > 0) {
+                    parent.location = loc.replace("&showInquiryModal=true", "");
+                } else if (appointmentIdx > 0) {
+                    parent.location = loc.replace("&showAppointmentModal=true", "");
+                }
+
+                closeModal();
+
+            }
+            
+            function showModal(width, height) {
+                PopupModalControl.SetVisible(true);
+                resizeModal(width, height);
+            }
+
+            function resizeModal(width, height) {
+                PopupModalControl.SetSize(width, height);
+                PopupModalControl.UpdatePosition();
+            }
+
+            function closeModal() {
+                PopupModalControl.Hide();
+            }
+
+            function successToast(msg) {
+                $.toast(wrapToastMessage(msg), 5000);
+                $(".toast").css("background-color", "#51A351");
+            }
+
+            function tempAlertToast(msg) {
+                $.toast(wrapToastMessage(msg), 5000);
+                $(".toast").css("background-color", "#51A351");
+            }
+
+            function errorToast(msg) {
+                $.toast(wrapToastMessage(msg), 5000);
+                $(".toast").css("background-color", "#BD362F");
+            }
+
+            function wrapToastMessage(msg) {
+                return "<table><tr><td>" + msg + "</td><td style='vertical-align: top;'><a class='toast-action close'>&times;</a></td></tr></table>";
+            }
+
+            function ShowProgress() {
+                document.getElementById('ctl00_ctl00_WorkingUpdateProgress').style.display = "block";
+            }
+
+            function HideProgress() {
+                document.getElementById('ctl00_ctl00_WorkingUpdateProgress').style.display = "none";
+            }
+
+            function abortTask() {
+                var obj = Sys.WebForms.PageRequestManager.getInstance();
+                if (obj.get_isInAsyncPostBack()) {
+                    obj.abortPostBack();
+                }
+                else {
+                    changeCancelText();
+                    document.getElementById("LoadingProgressTemplateWithCancel").style.height = "35px";
+                    //This line needs to be here for IE to work-DO NOT REMOVE
+                    setTimeout(function () { location.reload(); }, 100);
+                }
+            }
+
+            function changeCancelText() {
+                document.getElementById('Message').innerHTML = 'Reloading...';
+                HideCancelButtonInWorkingUpdateProgress();
+
+            }
+
+            function HideCancelButtonInWorkingUpdateProgress() {
+                document.getElementById('ProgressCancelButton').style.visibility = "hidden";
+            }
+
+            //create check that happens every second to see if cookie exists
+            var cookieChecker;
+            var myCookie;
+
+            function checkingIfmyCookieExists() {
+                myCookie = getExportCookie("DownLoadCookie");
+
+                //if "DownLoadCookie" alread exists then remove it
+                if (myCookie == "Downloaded") {
+                    expireCookie("DownLoadCookie");
+                }
+
+                cookieChecker = setInterval("checkingIfmyCookieIsDownloaded();", 1000);
+            }
+
+            //check if cookie DownLoadCookie.value == Downloaded
+            function checkingIfmyCookieIsDownloaded() {
+                myCookie = getExportCookie("DownLoadCookie");
+
+                //if myCookie Exists reload the page and then delete cookie
+                if (myCookie == "Downloaded") {
+                    HideProgress();
+                    expireCookie("DownLoadCookie");
+
+                    //stops the javascript setInterval timer
+                    turnOffCookieChecker();
+                }
+            }
+
+            //function to turn off the setInterval
+            function turnOffCookieChecker() {
+                clearInterval(cookieChecker);
+            }
+
+            //get the cookie by name
+            function getExportCookie(cname) {
+                var name = cname + "=";
+                var ca = document.cookie.split(';');
+                for (var i = 0; i < ca.length; i++) {
+                    var c = ca[i].trim();
+                    if (c.indexOf(name) == 0) return c.substring(name.length, c.length);
+                }
+                return "";
+            }
+
+            //function to set cookie in the past then the browser ignores the cookie
+            function expireCookie(name) {
+                document.cookie = name +
+                    '=; expires=Thu, 01-Jan-70 00:00:01 GMT;';
+            }
+
+            //this is for the quickbooks web api and needs to stay here.
+            var fileName = 'ContactDetail.aspx';
+            var appBaseUrl = window.location.toString().replace(fileName, "").replace("?view=online", "");
+            intuit.ipp.anywhere.setup({
+                menuProxy: appBaseUrl + '/QuickBooksWeb/BlueDotMenuProxy.aspx',
+                grantUrl: appBaseUrl + '/QuickBooksWeb/OauthGrant.aspx'
+            });
+
+
+            //end quickbooks online---
+
+            //Routing for the whether the user has access to the new calendar or not
+            var pathArray = location.href.split('/');
+            var protocol = pathArray[0];
+            var host = pathArray[2];
+            var url = protocol + '//' + host;
+            if (pathArray[3] === 'momentum-test') {
+                url = url + "/momentum-test";
+            }
+            else if (pathArray[3] === 'momentum-feature') {
+                url = url + "/momentum-feature";
+            }
+
+            $(document).ready(function () {
+
+                $('resizedCompanyImage').next().addClass('resizedCompanyImage');
+
+            });
+
+            //prevents scrollbar from overlapping with page content in IE10
+            if (navigator.userAgent.match(/MSIE 10\.0/)) {
+                var msViewportStyle = document.createElement('style')
+                msViewportStyle.appendChild(
+                    document.createTextNode(
+                        '@-ms-viewport{width:auto!important}'
+                    )
+                )
+                document.querySelector('head').appendChild(msViewportStyle)
+            }
+
+
+            // remove styles from the angular pages. these styles and js libraries are causing conflicts
+            if (window.location.href.toLowerCase().indexOf('productionjobview/jobview.aspx') > -1) {
+                var head = document.getElementsByTagName('head')[0];
+
+                var scripts = head.getElementsByTagName('script');
+                for (var i = 0; i < scripts.length; ++i) {
+                    if (scripts[i].getAttribute('src') === 'https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.js') {
+                        scripts[i].parentNode.removeChild(scripts[i]);
+                    }
+                }
+
+                var styles = head.getElementsByTagName('link');
+                for (var i = 0; i < styles.length; ++i) {
+                    if (styles[i].getAttribute('href') === 'https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css' ||
+                        styles[i].getAttribute('href') === '../css/jquery.multiselect_v1.css') {
+                        styles[i].parentNode.removeChild(styles[i]);
+                    }
+                }
+            }
+
+            async function updateEmployeeECPUserId(ecpUserId) {
+                try {
+                    var apiCookie = getCookie("ApiCookie");
+                    var splitCookies = apiCookie.split("&");
+                    var authorizationHeader = "Bearer " + splitCookies[0].replace("accessToken=", "");
+                    var coid = splitCookies[2].replace("coid=", "");
+                    var databaseId = splitCookies[3].replace("databaseid=", "");
+
+                    var url;
+                    if (databaseId !== coid) {
+                        url = parent.restApiAddress + "companies/" + databaseId + "-" + coid + "/employees/" + parent.empOid + "/ecpUserIdentity/" + ecpUserId;
+                    } else {
+                        url = parent.restApiAddress + "companies/" + coid + "/employees/" + parent.empOid + "/ecpUserIdentity/" + ecpUserId;
+                    }
+
+                    await fetch(url, {
+                        method: "PUT",
+                        headers: new Headers({
+                            "api-version": "2.0",
+                            "Authorization": authorizationHeader
+                        })
+                    });
+                } catch (error) {
+                    console.error("Error: ", error);
+                }
+            }
+        </script>
+
+        <!-- Start of marketsharp Zendesk Widget script -->
+        <script id="ze-snippet" src="https://static.zdassets.com/ekr/snippet.js?key=0daa4977-88d7-4f5f-887b-f225c2365273"> </script>
+
+        <script type="text/javascript">
+            zE("webWidget", "hide");
+
+            function openWidget() {
+                zE("webWidget", "show");
+                zE("webWidget", "open");
+            }
+
+            zE('webWidget:on', 'close', function () {
+                zE('webWidget', 'hide');
+            });
+        </script>
+
+        <!-- End of marketsharp Zendesk Widget script -->
+
+        <input type="hidden" name="ctl00$ctl00$hidRespString" id="ctl00_ctl00_hidRespString" value="9^f)NEc1VqMQbC5aUJ)kMzfFEd8_QNJxinJi10(^7i^zAlAl4DHmxI_J7UKKQfkh" style="">
+    
+
+<script type="text/javascript" language="Javascript" id="EventScriptBlock">
+if(window.name == "" && parent.window.name == ""){
+$(document).ready(function() {
+if($("[id$='WalkThroughTemplateDropDownList']").length > 0) {
+$("[id$='WalkThroughTemplateDropDownList']").val($("[id$='WalkThroughTemplateDropDownList'] option:first").val());
+window.name = "";
+}else if($("[id$='WalkThroughTemplateDropDownList']",parent.document).length > 0){
+$("[id$='WalkThroughTemplateDropDownList']",parent.document).val($("[id$='WalkThroughTemplateDropDownList'] option:first").val());
+window.parent.name = "";
+}
+document.cookie = "NextStepGuide=;expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+})}
+$(function () {
+$("[id$='WalkThroughTemplateDropDownList']").change(function () {
+var selectedVal = $("[id$='WalkThroughTemplateDropDownList'] :selected").text();
+window.name = selectedVal
+var intro = introJs();
+document.cookie = "NextStepGuide=name=" + selectedVal + "&setOfSteps=1;path=/";
+switch(selectedVal) {
+case "Activity - Add new activity to current lead":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Additional Contact - Add an additional contact to current lead":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Admin - Navigate to":
+intro.setOptions({
+steps: [
+{ element: "[id$='" + $("[id$='AdminLink']:last")[0].id + "']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>Click the Admin Link</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Appointment - Add a proposal to the current lead for the most recent appointment":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Appointment - Add an appointment to the most recent inquiry":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Attachment - Add an attachment to current lead":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>First click on the Leads Record View to verify that we are on the record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Contact - Add new lead":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Contact - Add/edit email address":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>Make sure that you are on the record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Contact - Add/edit phone/fax number":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>Make sure that you are on the record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Contact - Delete contact":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>Make sure that you are on the record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Filtering - Add a column to a view for a filter":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsListView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>Click the Leads List View button</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Inquiry - Add inquiry to current lead":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Job - Add a commission for a job":
+intro.setOptions({
+steps: [
+{ element: "[id$='CustomerRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>First we will verify that we are on the Customer Record View</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Job - Add a cost to a product":
+intro.setOptions({
+steps: [
+{ element: "[id$='CustomerRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>First we will verify that we are on the Customer Record View</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Job - Add a job for an existing inquiry with a sold appointment result":
+intro.setOptions({
+steps: [
+{ element: "[id$='CustomerRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>First we will verify that we are on the Customer Record View</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Job - Add a production task":
+intro.setOptions({
+steps: [
+{ element: "[id$='CustomerRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>First we will verify that we are on the Customer Record View</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+case "Note - Add a note to the current lead":
+intro.setOptions({
+steps: [
+{ element: "[id$='LeadsRecordView']",
+intro: "<span style=\"top: -60px !important; z-index: 100;\" class=\"introjs-helperNumberLayer\"><span id=\"StepNumber\">1</span></span><div>To start lets make sure that you are on the leads record view</div>",
+position: 'bottom'}
+],
+showStepNumbers: false,
+showBullets: false,
+scrollToElement: true,
+doneLabel: 'Cancel Guide'
+})
+;
+break;
+}
+intro.onexit(function() {
+if($("[id$='WalkThroughTemplateDropDownList']").length > 0) {
+$("[id$='WalkThroughTemplateDropDownList']").val($("[id$='WalkThroughTemplateDropDownList'] option:first").val());
+window.name = "";
+}else if($("[id$='WalkThroughTemplateDropDownList']",parent.document).length > 0){
+$("[id$='WalkThroughTemplateDropDownList']",parent.document).val($("[id$='WalkThroughTemplateDropDownList'] option:first").val());
+window.parent.name = "";
+}
+document.cookie = "NextStepGuide=;expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+})
+.start();
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='AdminLink']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsListView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='CustomerRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='CustomerRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='CustomerRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='CustomerRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+$("[id$='LeadsRecordView']").click(function() {
+if(typeof selectedVal != 'undefined'){
+document.cookie = "NextStepGuide=name="+selectedVal+"&setOfSteps=2&section=Contacts Tab;path=/";
+}else{
+document.cookie = "NextStepGuide="+guideName+"&setOfSteps=2&section=Contacts Tab;path=/";
+}
+$('.introjs-skipbutton').click();
+});
+})});
+
+ </script>
+<script type="text/javascript">
+//<![CDATA[
+
+WebForm_InitCallback();Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_lastNameTextBoxWatermark_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Last Name","id":"ctl00_ctl00_MainContentPlaceHolder_lastNameTextBoxWatermark"}, null, null, $get("lastNameTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_firstNameTextBoxWatermark_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"First Name","id":"ctl00_ctl00_MainContentPlaceHolder_firstNameTextBoxWatermark"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_firstNameTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_TextBoxWatermarkExtender1_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Company","id":"ctl00_ctl00_MainContentPlaceHolder_TextBoxWatermarkExtender1"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_businessNameTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_addressTextBoxWatermark_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Address","id":"ctl00_ctl00_MainContentPlaceHolder_addressTextBoxWatermark"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_addressTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_cityTextBoxWatermark_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"City","id":"ctl00_ctl00_MainContentPlaceHolder_cityTextBoxWatermark"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_cityTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_zipTextBoxWatermark_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Zip","id":"ctl00_ctl00_MainContentPlaceHolder_zipTextBoxWatermark"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_zipTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_phoneNumberTextBoxWatermarkExtender_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Phone Number","id":"ctl00_ctl00_MainContentPlaceHolder_phoneNumberTextBoxWatermarkExtender"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_phoneNumberTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_emailAddressTextBoxWatermarkExtender_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Email Address","id":"ctl00_ctl00_MainContentPlaceHolder_emailAddressTextBoxWatermarkExtender"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_emailAddressTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.TextBoxWatermarkBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_jobNumberTextBoxWatermarkExtender_ClientState","WatermarkCssClass":"watermarked","WatermarkText":"Job Number","id":"ctl00_ctl00_MainContentPlaceHolder_jobNumberTextBoxWatermarkExtender"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_jobNumberTextBox"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.AccordionBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_SearchFindOptions_AccordionExtender_ClientState","ContentCssClass":"Contents","FadeTransitions":true,"FramesPerSecond":100,"HeaderCssClass":"Header","HeaderSelectedCssClass":"SelectedHeader","id":"ctl00_ctl00_MainContentPlaceHolder_SearchFindOptions_AccordionExtender","requireOpenedPane":false}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_SearchFindOptions"));
+});
+Sys.Application.add_init(function() {
+    $create(AjaxControlToolkit.CollapsiblePanelBehavior, {"ClientStateFieldID":"ctl00_ctl00_MainContentPlaceHolder_expandingCollapsingSearchPanelExtender_ClientState","CollapseControlID":"QuickFindHeaderDiv","CollapsedImage":"images/collapse2.png","ExpandControlID":"QuickFindHeaderDiv","ExpandedImage":"images/Expand2.png","ImageControlID":"ctl00_ctl00_MainContentPlaceHolder_QuickFindToggleImage","TextLabelID":"ctl00_ctl00_MainContentPlaceHolder_QuickFindLabel","id":"expandingCollapsingSearchPanelExtender"}, null, null, $get("ctl00_ctl00_MainContentPlaceHolder_searchPanel"));
+});
+Sys.Application.add_init(function() {
+    $create(Sys.UI._UpdateProgress, {"associatedUpdatePanelId":null,"displayAfter":1000,"dynamicLayout":true}, null, null, $get("ctl00_ctl00_WorkingUpdateProgress"));
+});
+//]]>
+</script>
+<input type="hidden" name="DXScript" value="1_11,1_12,1_255,1_23,1_64,1_14,1_15,1_17,1_41,1_49,1_182" style=""><input type="hidden" name="DXCss" value="1_74,1_68,1_73,1_207,1_209,1_206" style=""></form>
+    <div id="edge-widget" class="edge-widget">
+        <iframe id="edge-widget-iframe" class="edge-widget-iframe">
+        </iframe>
+        <div class="edge-widget-footer">
+            <button id="edge-close-button" onclick="ToggleEdgeWidgetClick(event)">
+	            <img id="edge-close-button-image" alt="Close Edge Widget" src="/images/EdgeIntegrationIcons/Panel_Close.png">
+            </button>
+            <a id="open-edge-new-window-button" href="" target="_blank" hidden="">
+	            <img id="open-edge-new-window-button-image" alt="Open Edge to New Window" src="/images/EdgeIntegrationIcons/Open_New.svg">
+            </a>
+        </div>
+    </div>
+
+
+<div role="status" aria-live="assertive" aria-relevant="additions" class="ui-helper-hidden-accessible"></div><iframe data-product="web_widget" title="No content" role="presentation" tabindex="-1" allow="microphone *" aria-hidden="true" src="about:blank" style="width: 0px; height: 0px; border: 0px; position: absolute; top: -9999px;"></iframe><div><iframe title="Opens a widget where you can find more information" id="launcher" tabindex="-1" style="color-scheme: light; width: 109px; height: 50px; padding: 0px; margin: 10px 20px; position: fixed; bottom: 30px; overflow: visible; opacity: 0; border: 0px; z-index: 999998; transition-duration: 250ms; transition-timing-function: cubic-bezier(0.645, 0.045, 0.355, 1); transition-property: opacity, top, bottom; top: -9999px; visibility: hidden;"></iframe></div><div id="chmln-dom" style="position: static;"><div id="chmln" data-powered-by="https://chameleon.io/how"></div><style id="chmln-stylesheet" type="text/css"></style><div id="chmln-prefetch-images"></div><style id="chmln-stylesheet-custom" type="text/css"></style><iframe id="chmln-reference-iframe" style="height: 0; width: 0; display: none !important"></iframe></div></body></html>

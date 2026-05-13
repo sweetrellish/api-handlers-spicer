@@ -1,134 +1,121 @@
 #!/usr/bin/env python3
+
 """
-spicer_ops_menu.py
-------------------
-Remote health check and repair menu for Spicer API services.
-- Checks status of systemd services (webhook, worker, cloudflared)
-- Diagnoses common issues (inactive, failed, missing dependencies)
-- Offers repair actions (restart, reload, reinstall, log dump)
-- Interactive menu for remote ops
+spicer_ops_menu.py - Tools & Diagnostics Menu for the spicer/scripts directory
+
+Features:
+- Auto-discovers Python (.py) and shell (.sh) scripts
+- Displays descriptions from docstrings or top comments
+- Allows searching/filtering scripts
+- User-friendly, visually clear CLI menu
+- Runs scripts with correct interpreter
+- Includes submenu for remote service ops
 """
+
 
 import os
 import subprocess
 import sys
-import getpass
-from dotenv import load_dotenv # type: ignore
-load_dotenv()
+import re
+from pathlib import Path
+from textwrap import fill
 
-SERVICES = [
-    ('spicer-webhook', 'API Webhook (Gunicorn)'),
-    ('spicer-worker', 'UI Worker'),
-    ('spicer-cloudflared', 'Cloudflared Tunnel'),
-]
+# === Visual helpers ===
+def color(text, code):
+    return f"\033[{code}m{text}\033[0m"
+def cyan(text): return color(text, '36')
+def green(text): return color(text, '32')
+def yellow(text): return color(text, '33')
+def magenta(text): return color(text, '35')
+def bold(text): return f"\033[1m{text}\033[0m"
+def underline(text): return f"\033[4m{text}\033[0m"
+def gray(text): return color(text, '90')
 
-def get_ssh_creds():
-    # Gateway (jump host) credentials
-    gw_host = os.environ.get('SPICER_GATEWAY_HOST') or input('Gateway SSH host (Optiplex): ')
-    gw_user = os.environ.get('SPICER_GATEWAY_USER') or input('Gateway SSH user: ')
-    gw_pw = os.environ.get('SPICER_GATEWAY_PASS')
-    if gw_pw is None:
-        gw_pw = getpass.getpass(f"Password for {gw_user}@{gw_host} (leave blank to use SSH key): ")
+SCRIPTS_DIR = Path(__file__).parent
 
-    # Rack server credentials
-    host = os.environ.get('SPICER_REMOTE_HOST') or input('Remote SSH host (Rack): ')
-    user = os.environ.get('SPICER_REMOTE_USER') or input('Remote SSH user (Rack): ')
-    pw = os.environ.get('SPICER_REMOTE_PASS')
-    if pw is None:
-        pw = getpass.getpass(f"Password for {user}@{host} (leave blank to use SSH key): ")
-    return (gw_host, gw_user, gw_pw), (host, user, pw)
+# === Script discovery ===
+def get_scripts():
+    scripts = []
+    for f in sorted(SCRIPTS_DIR.iterdir()):
+        if f.name.startswith('.') or f.is_dir() or f.name == Path(__file__).name:
+            continue
+        if f.suffix in {'.py', '.sh'}:
+            scripts.append(f)
+    return scripts
 
-# Remote command execution via SSH with optional sudo
-def run_remote(cmd, capture=True, sudo=False):
-    # Unpack credentials
-    (gw_host, gw_user, gw_pw), (host, user, pw) = SSH_CREDS
-    # Use ProxyJump (-J) to go through gateway to remote host
-    ssh_cmd = [
-        'ssh',
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-J', f'{gw_user}@{gw_host}',
-        f'{user}@{host}',
-    ]
-    # if sudo needed enter sudo password pulled from env or prompt, else just run command
-    if sudo:
-        if pw:
-            full_cmd = ssh_cmd + [f"echo {pw} | sudo -S {cmd}"]
-        else:
-            full_cmd = ssh_cmd + [f"sudo {cmd}"]
-    if capture:
-        result = subprocess.run(full_cmd, capture_output=True, text=True)
-        return result.stdout.strip()
-    else:
-        subprocess.run(full_cmd)
+def get_description(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = [next(f) for _ in range(10)]
+    except Exception:
+        return ''
+    # Python docstring
+    if path.suffix == '.py':
+        docstring = re.search(r'"""(.*?)"""', ''.join(lines), re.DOTALL)
+        if docstring:
+            return docstring.group(1).strip().split('\n')[0]
+    # Shell script comment
+    for line in lines:
+        if line.strip().startswith('#'):
+            return line.strip('#').strip()
+    return ''
 
-# Service status checks and operations
-def check_service(name):
-    status = run_remote(f'systemctl is-active {name}')
-    loaded = run_remote(f'systemctl is-enabled {name}')
-    return status, loaded
-
-# Print status of all services
-def print_status():
-    print("\n=== Spicer Service Status (Remote) ===")
-    for svc, desc in SERVICES:
-        status, loaded = check_service(svc)
-        print(f"{desc:22} [{svc}]: {status} (enabled: {loaded})")
+def print_menu(scripts, filter_text=None):
+    os.system('clear' if os.name == 'posix' else 'cls')
+    print(bold(underline('spicer Tools & Diagnostics Menu')))
+    print(gray('Directory: scripts/'))
+    if filter_text:
+        print(yellow(f"Filter: '{filter_text}'\n"))
+    print(bold('Available Scripts:'))
+    for idx, script in enumerate(scripts, 1):
+        desc = get_description(script)
+        desc = fill(desc, width=60) if desc else gray('(No description)')
+        print(f"  {cyan(str(idx))}. {green(script.name)}\n     {desc}")
     print()
+    print(gray("Type a number to run, 's' to search, 'r' for remote ops, 'q' to quit."))
 
-# Restart a service
-def restart_service(name):
-    print(f"Restarting {name} (remote)...")
-    run_remote(f'systemctl restart {name}', capture=False, sudo=True)
-    print(f"{name} restarted.")
+def run_script(script_path):
+    print(bold(f"\n--- Running: {script_path.name} ---\n"))
+    if script_path.suffix == '.py':
+        cmd = [sys.executable, str(script_path)]
+    elif script_path.suffix == '.sh':
+        cmd = ['bash', str(script_path)]
+    else:
+        print(yellow('Unknown script type.'))
+        return
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(yellow(f"Script exited with error code {e.returncode}"))
+    input(gray('\nPress Enter to return to menu...'))
 
-# Show recent logs for a service
-def show_logs(name, lines=30):
-    print(f"\n--- Last {lines} log lines for {name} (remote) ---")
-    logs = run_remote(f'journalctl -u {name} --no-pager -n {lines} -l')
-    print(logs)
 
-# Interactive menu
-def menu():
+
+
+# === Main menu ===
+def main():
+    scripts = get_scripts()
+    filter_text = None
     while True:
-        print("Options:")
-        print("  1. Check service status")
-        print("  2. Restart all services")
-        print("  3. Restart a service")
-        print("  4. Show logs for a service")
-        print("  5. Exit")
-        choice = input("Select option: ").strip()
-        if choice == '1':
-            print_status()
-        elif choice == '2':
-            for svc, _ in SERVICES:
-                restart_service(svc)
-        elif choice == '3':
-            svc_map = {str(i+1): svc for i, (svc, _) in enumerate(SERVICES)}
-            for idx, (svc, desc) in enumerate(SERVICES, 1):
-                print(f"    {idx}. {desc} [{svc}]")
-            sel = input("Select service #: ").strip()
-            if sel in svc_map:
-                restart_service(svc_map[sel])
-            else:
-                print("Invalid selection.")
-        elif choice == '4':
-            svc_map = {str(i+1): svc for i, (svc, _) in enumerate(SERVICES)}
-            for idx, (svc, desc) in enumerate(SERVICES, 1):
-                print(f"    {idx}. {desc} [{svc}]")
-            sel = input("Select service #: ").strip()
-            if sel in svc_map:
-                show_logs(svc_map[sel])
-            else:
-                print("Invalid selection.")
-        elif choice == '5':
-            print("Exiting.")
-            sys.exit(0)
-        else:
-            print("Invalid option. Try again.")
+        filtered = scripts
+        if filter_text:
+            filtered = [s for s in scripts if filter_text.lower() in s.name.lower() or filter_text.lower() in get_description(s).lower()]
+        print_menu(filtered, filter_text)
+        choice = input(bold('Select option: ')).strip()
+        if choice.lower() == 'q':
+            print(green('Goodbye!'))
+            break
+        if choice.lower() == 's':
+            filter_text = input('Enter search/filter text: ').strip()
+            continue
+        if not choice.isdigit() or not (1 <= int(choice) <= len(filtered)):
+            print(yellow('Invalid selection.'))
+            input(gray('Press Enter to continue...'))
+            continue
+        script = filtered[int(choice)-1]
+        run_script(script)
+        filter_text = None  # Reset filter after running
 
 if __name__ == '__main__':
-    global SSH_CREDS
-    SSH_CREDS = get_ssh_creds()
-    menu()
+    main()
 

@@ -8,7 +8,13 @@ import sqlite3
 import sys
 from datetime import datetime
 
-AUDIT_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data/posted_comments_audit.db')
+AUDIT_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'posted_comments_audit.db')
+
+flags = {
+    '-r': 'print in reverse chronological order (newest first)',
+    '--csv': 'export the audit log to a CSV file instead of printing'
+}
+
 
 def ensure_audit_table():
     conn = sqlite3.connect(AUDIT_DB)
@@ -44,10 +50,14 @@ def log_posted_comment(event_id, customer_id, customer_name, author_name, commen
     print(f"[AUDIT] Logged posted comment: event_id={event_id}, customer_id={customer_id}, author={author_name}, at={now_iso}")
 
 def print_audit_log():
+    if flags.get('-r'):
+        order = 'DESC'
+    else:        
+        order = 'ASC'
     ensure_audit_table()
     conn = sqlite3.connect(AUDIT_DB)
     cur = conn.cursor()
-    cur.execute('SELECT id, event_id, customer_id, customer_name, author_name, posted_at_iso, comment_text FROM posted_comments_audit ORDER BY posted_at DESC')
+    cur.execute(f'SELECT id, event_id, customer_id, customer_name, author_name, posted_at_iso, comment_text FROM posted_comments_audit ORDER BY posted_at {order}')
     rows = cur.fetchall()
     print("\n=== Posted Comments Audit Log ===")
     for row in rows:

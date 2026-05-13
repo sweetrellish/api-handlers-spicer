@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+
+"""
+spicer_ops_menu.py - Tools & Diagnostics Menu for the spicer directory
+
+Features:
+- Auto-discovers Python (.py) and shell (.sh) scripts
+- Displays descriptions from docstrings or top comments
+- Allows searching/filtering scripts
+- User-friendly, visually clear CLI menu
+- Runs scripts with correct interpreter
+- Includes submenu for remote service ops
+"""
+
+
+import os
+import subprocess
+import sys
+import re
+from pathlib import Path
+from textwrap import fill
+
+# === Visual helpers ===
+def color(text, code):
+    return f"\033[{code}m{text}\033[0m"
+def cyan(text): return color(text, '36')
+def green(text): return color(text, '32')
+def yellow(text): return color(text, '33')
+def magenta(text): return color(text, '35')
+def bold(text): return f"\033[1m{text}\033[0m"
+def underline(text): return f"\033[4m{text}\033[0m"
+def gray(text): return color(text, '90')
+
+CURRENT_DIR = Path(__file__).parent
+NEXT_DIR = ""  # Placeholder for potential future use in navigating directories
+
+# === Script discovery ===
+def get_scripts():
+    scripts = []
+    for f in sorted(CURRENT_DIR.iterdir()):
+        if f.name.startswith('.') or f.is_dir() or f.name == Path(__file__).name:
+            continue
+        if f.suffix in {'.py', '.sh'}:
+            scripts.append(f)
+    return scripts
+
+# === Directory navigation (optional) ===
+def change_directory(path):
+    global CURRENT_DIR
+    new_path = (CURRENT_DIR / path).resolve()
+    if new_path.is_dir() and str(new_path).startswith(str(Path(__file__).parent.resolve())):
+        CURRENT_DIR = new_path
+    else:
+        print(yellow('Invalid directory. Staying in current directory.'))
+#=== Description extraction ===
+def get_description(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = [next(f) for _ in range(10)]
+    except Exception:
+        return ''
+    # Python docstring
+    if path.suffix == '.py':
+        docstring = re.search(r'"""(.*?)"""', ''.join(lines), re.DOTALL)
+        if docstring:
+            return docstring.group(1).strip().split('\n')[0]
+    # Shell script comment
+    for line in lines:
+        if line.strip().startswith('#'):
+            return line.strip('#').strip()
+    return ''
+
+
+def print_menu(scripts, filter_text=None):
+    os.system('clear' if os.name == 'posix' else 'cls')
+    print(bold(underline('Spicer API Handler Tools & Diagnostics Menu')))
+    print(gray(f'Directory: {CURRENT_DIR}/\n'))
+
+    if filter_text:
+        print(yellow(f"Filter: '{filter_text}'\n"))
+    print(bold('Available Scripts:'))
+    for idx, script in enumerate(scripts, 1):
+        desc = get_description(script)
+        desc = fill(desc, width=60) if desc else gray('(No description)')
+        print(f"  {cyan(str(idx))} {green(script.name)}     {gray(desc)}")
+    print()
+    print(gray("Type a number to run, 's' to search, 'r' for remote ops, 'q' to quit."))
+    print(gray('To move directory enter: cd spicer/your/desired/path or cd spicer for root\n'))
+
+
+
+def run_script(script_path):
+    print(bold(f"\n--- Running: {script_path.name} ---\n"))
+    if script_path.suffix == '.py':
+        cmd = [sys.executable, str(script_path)]
+    elif script_path.suffix == '.sh':
+        cmd = ['bash', str(script_path)]
+    else:
+        print(yellow('Unknown script type.'))
+        return
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(yellow(f"Script exited with error code {e.returncode}"))
+    input(gray('\nPress Enter to return to menu...'))
+
+
+
+
+# === Main menu ===
+def main():
+    scripts = get_scripts()
+    filter_text = None
+    while True:
+        filtered = scripts
+        if filter_text:
+            filtered = [s for s in scripts if filter_text.lower() in s.name.lower() or filter_text.lower() in get_description(s).lower()]
+        print_menu(filtered, filter_text)
+        choice = input(bold('Select option: ')).strip()
+        # Handle directory change
+        if choice.startswith('cd '):
+            path = choice[3:].strip()
+            change_directory(path)
+            scripts = get_scripts()  # Refresh scripts after changing directory
+            filter_text = None  # Reset filter after changing directory
+            continue
+        if choice.lower() == 'q':
+            print(green('Goodbye!'))
+            break
+        if choice.lower() == 's':
+            filter_text = input('Enter search/filter text: ').strip()
+            continue
+        if not choice.isdigit() or not (1 <= int(choice) <= len(filtered)):
+            print(yellow('Invalid selection.'))
+            input(gray('Press Enter to continue...'))
+            continue
+        script = filtered[int(choice)-1]
+        run_script(script)
+        filter_text = None  # Reset filter after running
+
+if __name__ == '__main__':
+    main()
+

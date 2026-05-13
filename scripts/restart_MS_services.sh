@@ -4,6 +4,7 @@
 set -e
 
 SERVICES=(
+    marketsharp_queue_worker_event
     marketsharp_queue_worker
     spicer-webhook-sync
     spicer-webhook-url-sync

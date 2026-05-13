@@ -1,0 +1,53 @@
+#!/bin/bash
+# Full end-to-end health check for Spicer API and worker
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."  # Move to spicer root
+
+# Load .env token
+if [ ! -f .env ]; then
+  echo "ERROR: .env file not found in $(pwd)" >&2
+  exit 1
+fi
+WEBHOOK_TOKEN=$(grep '^COMPANYCAM_WEBHOOK_TOKEN=' .env | cut -d '=' -f2- | tr -d '"')
+if [ -z "$WEBHOOK_TOKEN" ]; then
+  echo "ERROR: COMPANYCAM_WEBHOOK_TOKEN not found in .env" >&2
+  exit 1
+fi
+
+# 1. Check API service
+echo "==> Checking spicer-flask-api.service status..."
+systemctl status spicer-flask-api.service --no-pager || true
+
+# 2. Test /health endpoint
+echo -e "\n==> Testing API /health endpoint..."
+HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/health)
+echo "/health status: $HEALTH_CODE"
+
+# 3. Test /webhook/companycam with valid token
+echo -e "\n==> Testing /webhook/companycam endpoint with valid token..."
+SAMPLE_PAYLOAD="{\"type\": \"comment.created\", \"token\": \"$WEBHOOK_TOKEN\", \"data\": {\"id\": \"test-comment-123\", \"text\": \"Automated test comment\", \"project_id\": \"test-project-123\", \"user\": {\"name\": \"Test User\"}}}"
+WEBHOOK_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Content-Type: application/json" -d "$SAMPLE_PAYLOAD" http://localhost:5001/webhook/companycam)
+echo "/webhook/companycam status: $WEBHOOK_CODE"
+
+# 4. Start the queue worker (if not running)
+echo -e "\n==> Ensuring queue worker is running..."
+systemctl start spicer-worker.service || true
+sleep 5
+
+# 5. Check audit DB for the test comment (requires sqlite3)
+AUDIT_DB="data/posted_comments_audit.db"
+echo -e "\n==> Checking audit DB for test comment..."
+if [ -f "$AUDIT_DB" ]; then
+  sqlite3 "$AUDIT_DB" "SELECT * FROM posted_comments WHERE comment_text LIKE '%Automated test comment%' ORDER BY posted_at DESC LIMIT 1;"
+else
+  echo "Audit DB not found at $AUDIT_DB"
+fi
+
+# 6. Show last 20 lines of service logs
+echo -e "\n==> Last 20 lines of spicer-flask-api.service logs:"
+journalctl -u spicer-flask-api.service -n 20 --no-pager || true
+
+echo -e "\n==> Done. Review output for errors or non-200 responses."
+

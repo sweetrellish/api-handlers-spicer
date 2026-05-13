@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloudflared Tunnel Watchdog
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStart=/usr/local/bin/cloudflared tunnel run <YOUR_TUNNEL_NAME>
+
+[Install]
+WantedBy=multi-user.target
+

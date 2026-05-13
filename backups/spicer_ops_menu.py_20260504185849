@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+
+"""
+spicer_ops_menu.py - Tools & Diagnostics Menu for the spicer directory
+
+Features:
+- Auto-discovers Python (.py) and shell (.sh) scripts
+- Displays descriptions from docstrings or top comments
+- Allows searching/filtering scripts
+- User-friendly, visually clear CLI menu
+- Runs scripts with correct interpreter
+- Includes submenu for remote service ops
+"""
+
+import os
+import subprocess
+import sys
+import re
+import ast
+from pathlib import Path
+from textwrap import fill
+
+# === Visual helpers ===
+def color(text, code):
+    return f"\033[{code}m{text}\033[0m"
+def red(text): return color(text, '31')
+def blue(text): return color(text, '34')
+def cyan(text): return color(text, '36')
+def green(text): return color(text, '32')
+def yellow(text): return color(text, '33')
+def magenta(text): return color(text, '35')
+def bold(text): return f"\033[1m{text}\033[0m"
+def underline(text): return f"\033[4m{text}\033[0m"
+def gray(text): return color(text, '90')
+
+CURRENT_DIR = Path(__file__).parent
+NEXT_DIR = ""  # Placeholder for potential future use in navigating directories
+
+# === Script discovery ===
+def get_scripts():
+
+    # Only list .py and .sh files, excluding hidden files, directories, and this menu script itself
+    scripts = []
+
+    # Sort scripts alphabetically for consistent ordering
+    for f in sorted(CURRENT_DIR.iterdir()):
+
+        # Skip hidden files, directories, and this menu script
+        if f.name.startswith('.') or f.is_dir() or f.name == Path(__file__).name:
+            continue
+        # Only include .py and .sh files
+        if f.suffix in {'.py', '.sh'}:
+            scripts.append(f)
+    return scripts
+
+# === Directory navigation (optional) ===
+# For simplicity, this example only allows navigating within the spicer directory and its subdirectories
+def change_directory(path):
+
+    # Prevent navigating outside of the spicer directory for security
+    global CURRENT_DIR
+
+    # Resolve the new path and ensure it's within the spicer directory
+    new_path = (CURRENT_DIR / path).resolve()
+
+    # Only allow changing to directories within the spicer directory
+    if new_path.is_dir() and str(new_path).startswith(str(Path(__file__).parent.resolve())):
+        CURRENT_DIR = new_path
+    else:
+        # Invalid directory - ignore and stay in current directory
+        print(yellow('Invalid directory. Staying in current directory.'))
+
+#=== Description extraction ===
+# For Python scripts, it checks for a triple-quoted docstring at the top of the file. If found, it uses the first line of the docstring as the description.
+# If no docstring is found, it looks for single-line comments at the top of the file (lines starting with #) and uses the first comment line as the description.
+# For shell scripts, it looks for comment lines at the top of the file (ignoring the shebang line) and uses the first comment line as the description.
+def get_description(path):
+
+    # Read the first few lines of the file to look for docstrings or comments
+    try:
+        # Only read the first 10 lines to avoid loading large files into memory
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = [next(f) for _ in range(10)]
+    # If the file has fewer than 10 lines, this will raise StopIteration, which we can ignore
+    except Exception:
+        return ''
+    
+    # Python docstring
+    # Parse module docstring so all lines inside triple quotes are captured reliably
+    if path.suffix == '.py':
+        try:
+            source = []
+            with open(path, 'r', encoding='utf-8') as f:
+                source.append([next(f) for _ in range(50)])  # Read more lines to ensure we capture the docstring
+            module_doc = ast.get_docstring(ast.parse(''.join(source)))
+            if module_doc:
+                return module_doc.strip().split('\n')[0]
+        except Exception:
+            pass
+        
+    # Python single-line comment(s)
+    if path.suffix == '.py':
+        for line in lines:
+            if line.strip().startswith('#'):
+                return line.strip('#').strip()
+            
+    # Shell script comment (ignoring shebang)
+    if path.suffix == '.sh':
+        for line in lines:
+            if line.strip().startswith('#') and not line.strip().startswith('#!'):
+                return line.strip('#').strip()
+    return ''
+
+#=== Menu display ===
+# The menu displays the available scripts with their descriptions, and provides options for the user to select a script to run, search/filter scripts, change directories, or quit the menu.
+def print_menu(scripts, filter_text=None):
+    os.system('clear' if os.name == 'posix' else 'cls')
+    print(bold(underline('Spicer API Handler Tools & Diagnostics Menu')))
+    print(gray(f'Current Directory: {CURRENT_DIR}/\n'))
+
+    # Display filter if active
+    if filter_text:
+        print(yellow(f"Filter: '{filter_text}'\n"))
+
+    # Display scripts
+    print(bold('Available Scripts:'))
+    for idx, script in enumerate(scripts, 1):
+        desc = get_description(script)
+        desc = fill(desc, width=60) if desc else gray('(No description)')
+        print(f"  {cyan(str(idx))} {green(script.name)} {gray('-')} {gray(desc)}")
+    print()
+    print(bold(magenta("Type a number to run, 's' to search, 'r' for remote ops, 'q' to quit.")))
+    print(bold(gray('To move directory enter: cd spicer/your/desired/path or cd spicer for root\n')))
+
+
+#=== Script execution ===
+# The run_script function takes the path of the selected script and executes it using the appropriate interpreter (Python for .py files and bash for .sh files). It also handles any errors that may occur during execution and prompts the user to return to the menu after the script finishes.
+def run_script(script_path):
+
+    # Display the script being run and execute it with the correct interpreter based on the file extension. If the script exits with an error, display a message and return to
+    print(bold(f"\n--- Running: {script_path.name} ---\n"))
+    if script_path.suffix == '.py':
+        cmd = [sys.executable, str(script_path)]
+    # For shell scripts, we use 'bash' to execute them. This assumes that the system has bash installed and available in the PATH. If the script has a shebang line (e.g., #!/bin/bash), it will still
+    elif script_path.suffix == '.sh':
+        cmd = ['bash', str(script_path)]
+    # If the script has an unrecognized extension, we can print an error message and return to the menu without trying to execute it.
+    else:
+        print(yellow('Unknown script type.'))
+        return
+    # We use subprocess.run to execute the command and check=True to raise an exception if the script exits with a non-zero status. If an error occurs, we catch the CalledProcessError and print a message with the error code.
+    try:
+        subprocess.run(cmd, check=True)
+    # If the script exits with a non-zero status, subprocess.run will raise a CalledProcessError, which we catch and print a message indicating that the script exited with an error code. After the script finishes (whether it succeeded or failed), we prompt the user to press Enter to return to the menu.
+    except subprocess.CalledProcessError as e:
+        print(yellow(f"Script exited with error code {e.returncode}"))
+    input(gray('\nPress Enter to return to menu...'))
+
+
+
+
+# === Main menu ===
+# The main function initializes the menu by retrieving the list of scripts and entering a loop that displays the menu, handles user input for selecting scripts, searching/filtering, changing directories, and quitting the menu. It also refreshes the list of scripts after changing directories to ensure that the menu reflects the current directory's contents.
+def main():
+
+    # Initialize the menu by retrieving the list of scripts and entering a loop that displays the menu and handles user input for selecting scripts, searching/filtering, changing directories, and quitting the menu. It also refreshes the list of scripts after changing directories to ensure that the menu reflects the current directory's contents.
+    scripts = get_scripts()
+    filter_text = None
+
+    # The main loop continues until the user chooses to quit by entering 'q'. Inside the loop, it filters the list of scripts based on the current filter text (if any), displays the menu, and prompts the user for input. Depending on the user's input, it handles directory changes, searching/filtering, script selection, and quitting the menu. After running a script or changing directories, it resets the filter text to ensure that the menu shows all scripts in the new context.
+    while True:
+
+        # Filter scripts based on the current filter text (if any) before displaying the menu. If there is no filter text, it shows all scripts. If there is filter text, it only includes scripts whose name or description contains the filter text (case-insensitive). This allows the user to quickly narrow down the list of scripts to find what they are looking for.
+        filtered = scripts
+
+        # If there is filter text, we create a new list of scripts that only includes those whose name or description contains the filter text (case-insensitive). This allows the user to quickly narrow down the list of scripts to find what they are looking for. The filtering checks both the script's filename and its description (extracted from docstrings or comments) to provide a more comprehensive search capability.
+        if filter_text:
+            filtered = [s for s in scripts if filter_text.lower() in s.name.lower() or filter_text.lower() in get_description(s).lower()]
+
+        # Display the menu with the filtered list of scripts and prompt the user for input. The menu shows the available scripts with their descriptions, and provides options for the user to select a script to run, search/filter scripts, change directories, or quit the menu. The user can also enter 'cd' followed by a path to change directories within the spicer directory.
+        print_menu(filtered, filter_text)
+        choice = input(bold('Select option: ')).strip()
+
+        # Handle directory change
+        if choice.startswith('cd '):
+            path = choice[3:].strip()
+            change_directory(path)
+            scripts = get_scripts()  # Refresh scripts after changing directory
+            filter_text = None  # Reset filter after changing directory
+            continue
+        # Handle quitting the menu
+        if choice.lower() == 'q':
+            print(green('Happy Coding!'))
+            break
+        # Handle searching/filtering scripts
+        if choice.lower() == 's':
+            filter_text = input('Enter search/filter text: ').strip()
+            continue
+        # Handle selecting a script to run
+        if not choice.isdigit() or not (1 <= int(choice) <= len(filtered)):
+            print(red('Invalid selection.'))
+            input(gray('Press Enter to continue...'))
+            continue
+        # If the user input is a valid number corresponding to one of the filtered scripts, we retrieve the selected script from the filtered list and call the run_script function to execute it. After running the script, we reset the filter text to ensure that the menu shows all scripts in the new context when it is displayed again.
+        script = filtered[int(choice)-1]
+        run_script(script)
+        filter_text = None  # Reset filter after running
+
+# The if __name__ == '__main__': block ensures that the main function is only executed when the script is run directly, and not when it is imported as a module. This allows the script to be used as a standalone menu for running other scripts in the spicer directory, while also allowing its functions to be imported and used in other contexts if needed.
+if __name__ == '__main__':
+    main()
+

@@ -7,8 +7,35 @@ import time
 
 
 
+
 class PendingCommentQueue:
     """SQLite-backed queue of comments waiting for MarketSharp write support."""
+
+    def fetch_and_mark_pending(self):
+        """Atomically fetch and mark a pending item as processing. Returns None if no pending item."""
+        now = int(time.time())
+        with self._lock:
+            with self._connect() as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    UPDATE pending_comments
+                    SET status = 'processing', updated_at = ?
+                    WHERE id = (
+                        SELECT id FROM pending_comments
+                        WHERE status = 'pending'
+                        ORDER BY created_at ASC
+                        LIMIT 1
+                    )
+                    AND status = 'pending'
+                    RETURNING id, event_id, customer_name, comment_text, author_name, payload_json,
+                              status, last_error, created_at, updated_at
+                    """,
+                    (now,)
+                ).fetchone()
+                conn.commit()
+                return dict(row) if row else None
+
 
     def get_all_items(self):
         """Return all queue items regardless of status, ordered by created_at."""
@@ -146,8 +173,41 @@ class PendingCommentQueue:
                     'already_queued': False,
                 }
 
+    def claim_pending_batch(self, limit=10):
+        """Atomically claim pending items for processing using a single UPDATE...RETURNING.
+
+        This prevents two concurrent worker processes from claiming the same item because
+        the status transition and the row read happen in one statement, not two round-trips.
+        Returns only rows that *this* call successfully transitioned from pending→processing.
+        """
+        now = int(time.time())
+        with self._lock:
+            with self._connect() as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    UPDATE pending_comments
+                    SET status = 'processing', updated_at = ?
+                    WHERE id IN (
+                        SELECT id FROM pending_comments
+                        WHERE status = 'pending'
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                    )
+                    RETURNING id, event_id, customer_name, comment_text, author_name, payload_json,
+                              status, last_error, created_at, updated_at, retry_count
+                    """,
+                    (now, limit),
+                ).fetchall()
+                conn.commit()
+                return [dict(row) for row in rows]
+
     def get_pending_batch(self, limit=10):
-        """Return oldest pending rows for processing."""
+        """Return oldest pending rows for processing (read-only, no claim).
+
+        Prefer claim_pending_batch() for actual worker consumption to avoid
+        race conditions between concurrent processes.
+        """
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
@@ -162,6 +222,26 @@ class PendingCommentQueue:
                 (limit,),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def touch_processing(self, queue_id):
+        """Refresh updated_at for an item in 'processing' state.
+
+        Call this before each attempt so that requeue_stale_processing won't
+        consider the item abandoned while it is still being actively worked on
+        by this worker.
+        """
+        now = int(time.time())
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE pending_comments
+                    SET updated_at = ?
+                    WHERE id = ? AND status = 'processing'
+                    """,
+                    (now, queue_id),
+                )
+                conn.commit()
 
     def mark_processing(self, queue_id):
         """Mark an item as actively being processed by a worker."""
@@ -180,6 +260,7 @@ class PendingCommentQueue:
 
     def mark_posted(self, queue_id):
         """Mark an item as posted successfully and reset retry_count."""
+        import logging
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
@@ -192,9 +273,11 @@ class PendingCommentQueue:
                     (now, queue_id),
                 )
                 conn.commit()
+                logging.info(f"[Queue] Marked item id={queue_id} as posted (db={self.db_path})")
 
     def mark_failed(self, queue_id, error_message):
         """Record a posting failure and return item to pending for retry."""
+        import logging
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
@@ -207,9 +290,11 @@ class PendingCommentQueue:
                     (error_message[:1000], now, queue_id),
                 )
                 conn.commit()
+                logging.info(f"[Queue] Marked item id={queue_id} as failed (db={self.db_path}) error={error_message}")
 
     def mark_unmatched(self, queue_id, error_message):
         """Mark an item as unmatched and increment retry_count."""
+        import logging
         now = int(time.time())
         with self._lock:
             with self._connect() as conn:
@@ -222,6 +307,7 @@ class PendingCommentQueue:
                     (error_message[:1000], now, queue_id),
                 )
                 conn.commit()
+                logging.info(f"[Queue] Marked item id={queue_id} as unmatched (db={self.db_path}) error={error_message}")
 
     def requeue_stale_processing(self, max_age_seconds):
         """Return stale processing rows to pending after worker interruption."""
@@ -270,6 +356,43 @@ class PendingCommentQueue:
                     """,
                     (now, cutoff),
                 )
+                conn.commit()
+                return cur.rowcount or 0
+
+    def requeue_true_fail(self, queue_ids=None):
+        """Reset true_fail items back to pending so workers will retry them.
+
+        Args:
+            queue_ids: list of int IDs to requeue, or None to requeue all true_fail rows.
+        Returns:
+            Number of rows updated.
+        """
+        now = int(time.time())
+        with self._lock:
+            with self._connect() as conn:
+                if queue_ids:
+                    placeholders = ','.join('?' * len(queue_ids))
+                    cur = conn.execute(
+                        f"""
+                        UPDATE pending_comments
+                        SET status = 'pending', retry_count = 0,
+                            last_error = 'Manually requeued from true_fail',
+                            updated_at = ?
+                        WHERE status = 'true_fail' AND id IN ({placeholders})
+                        """,
+                        [now, *queue_ids],
+                    )
+                else:
+                    cur = conn.execute(
+                        """
+                        UPDATE pending_comments
+                        SET status = 'pending', retry_count = 0,
+                            last_error = 'Manually requeued from true_fail',
+                            updated_at = ?
+                        WHERE status = 'true_fail'
+                        """,
+                        (now,),
+                    )
                 conn.commit()
                 return cur.rowcount or 0
 

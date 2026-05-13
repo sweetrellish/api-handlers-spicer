@@ -1,0 +1,13 @@
+[Unit]
+Description=MarketSharp Queue Worker (Event-Driven)
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=/usr/bin/python3 /path/to/spicer/queue_ui_poster.py --event-driven
+
+[Install]
+WantedBy=multi-user.target
+

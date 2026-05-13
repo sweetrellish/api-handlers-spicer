@@ -1,0 +1,18 @@
+[Unit]
+Description=Spicer Flask API (Gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=rellis
+WorkingDirectory=/home/rellis/spicer/src
+Environment="PATH=/home/rellis/spicer/.venv/bin:/usr/bin"
+ExecStart=/home/rellis/spicer/.venv/bin/gunicorn -c /home/rellis/spicer/gunicorn.conf.py app:app
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

@@ -6,11 +6,11 @@ import sys
 import json
 import sqlite3
 
-DB_PATH = "../pending_comments.db"  # Change if your DB is elsewhere
+DB_PATH = "/home/rellis/spicer/src/pending_comments.db"  # Change if your DB is elsewhere
 
 def list_unmatched(conn):
     cur = conn.cursor()
-    cur.execute("SELECT id, customer_name, created_at, comment_text FROM pending_comments WHERE status='unmatched' ORDER BY created_at ASC")
+    cur.execute("SELECT id, customer_name, created_at, comment_text FROM pending_comments WHERE status IN ('unmatched','true_fail') ORDER BY created_at ASC")
     rows = cur.fetchall()
     if not rows:
         print("No unmatched queue items found.")
@@ -39,7 +39,7 @@ def main():
         return
 
     cur = conn.cursor()
-    cur.execute("SELECT payload_json, customer_name FROM pending_comments WHERE id=? AND status='unmatched'", (queue_id,))
+    cur.execute("SELECT payload_json, customer_name FROM pending_comments WHERE id=? AND status IN ('unmatched','true_fail')", (queue_id,))
     row = cur.fetchone()
     if not row:
         print(f"No unmatched queue item found with id={queue_id}")

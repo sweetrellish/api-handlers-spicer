@@ -4,12 +4,22 @@ import base64
 import hashlib
 import hmac
 import logging
+import os
 import re
+import sys
 import time
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 import requests
 from config import Config
-from posted_comments_audit import log_posted_comment
+
+# The 'scripts' package lives at the spicer repo root, one level above src/.
+# Ensure that root is on sys.path so the import works regardless of the
+# WorkingDirectory or PYTHONPATH set in the systemd service file.
+_spicer_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _spicer_root not in sys.path:
+    sys.path.insert(0, _spicer_root)
+from scripts.posted_comments_audit import log_posted_comment
 
 
 
@@ -71,8 +81,7 @@ class MarketSharpService:
         if addr.get('postal'):
             search_fields.append(('postalCode', addr['postal']))
             search_fields.append(('zipCode', addr['postal']))
-        if addr.get('city'):
-            search_fields.append(('city', addr['city']))
+        # 'city' OData filter consistently returns 400 Bad Request from MarketSharp — skip it.
         if addr.get('street'):
             search_fields.append(('address1', addr['street']))
             search_fields.append(('street', addr['street']))
@@ -84,7 +93,7 @@ class MarketSharpService:
             try:
                 contacts = self._odata_fetch_contacts(filter_query, top=50)
                 for contact in contacts:
-                    cid = contact.get('id')
+                    cid = self._get_contact_id(contact)
                     if cid:
                         contacts_by_id[cid] = contact
             except requests.RequestException as exc:
@@ -174,7 +183,11 @@ class MarketSharpService:
                 'full': '',
             }
 
-        street = self._normalize_address_text(
+        # The street field is sometimes stored as a Python repr of the raw
+        # CompanyCam address dict, e.g.:
+        #   "{'street_address_1': '5557 Main Street', ..., 'postal_code': '23336', ...}"
+        # Detect this pattern and unpack the real fields from it.
+        raw_street = (
             address_obj.get('street')
             or address_obj.get('line1')
             or address_obj.get('address1')
@@ -182,6 +195,25 @@ class MarketSharpService:
             or address_obj.get('address')
             or ''
         )
+        if isinstance(raw_street, str) and raw_street.startswith('{') and 'street_address_1' in raw_street:
+            try:
+                import ast
+                inner = ast.literal_eval(raw_street)
+                if isinstance(inner, dict):
+                    # Promote values to the outer address_obj (without mutating the original)
+                    merged = dict(address_obj)
+                    merged['street'] = inner.get('street_address_1') or inner.get('street_address_2') or ''
+                    if not merged.get('city'):
+                        merged['city'] = inner.get('city') or ''
+                    if not merged.get('state'):
+                        merged['state'] = inner.get('state') or ''
+                    if not merged.get('postal'):
+                        merged['postal'] = inner.get('postal_code') or inner.get('zip') or ''
+                    return self._normalize_address_obj(merged)
+            except Exception:
+                pass
+
+        street = self._normalize_address_text(raw_street)
         city = self._normalize_address_text(address_obj.get('city') or '')
         state = self._normalize_address_text(address_obj.get('state') or address_obj.get('stateCode') or '')
         postal = self._normalize_address_text(
@@ -427,9 +459,7 @@ class MarketSharpService:
         if postal:
             escaped_postal = postal.replace("'", "''")
             address_clauses.append(f"substringof('{escaped_postal}',postalCode) or substringof('{escaped_postal}',zipCode)")
-        if city:
-            escaped_city = city.replace("'", "''")
-            address_clauses.append(f"substringof('{escaped_city}',city)")
+        # 'city' OData filter consistently returns 400 Bad Request from MarketSharp — omit it.
 
         if not address_clauses:
             return []
@@ -487,6 +517,25 @@ class MarketSharpService:
                 search_terms.append(token)
         return search_terms[:4]
 
+    @staticmethod
+    def _get_contact_id(contact):
+        """Return the OData entity key for a contact record.
+
+        Tries the flat ``id`` field first, then falls back to extracting the
+        numeric key from ``__metadata.uri`` (e.g. ``Contacts(12345)``).
+        """
+        cid = contact.get('id')
+        if cid is not None:
+            return cid
+        metadata = contact.get('__metadata') or {}
+        for key in ('uri', 'id'):
+            uri = metadata.get(key, '')
+            if uri:
+                m = re.search(r'\((\d+)\)$', str(uri))
+                if m:
+                    return m.group(1)
+        return None
+
     def _odata_fetch_contacts(self, filter_query, top=50):
         """Fetch contacts from OData using the legacy Contacts() endpoint."""
         url = f'{self.odata_url}/Contacts()?{filter_query}&$top={top}'
@@ -534,7 +583,7 @@ class MarketSharpService:
             try:
                 found = self._odata_fetch_contacts(multi_query, top=75)
                 for c in found:
-                    cid = c.get('id')
+                    cid = self._get_contact_id(c)
                     if cid:
                         contacts_by_id[cid] = c
             except requests.RequestException as exc:
@@ -548,7 +597,7 @@ class MarketSharpService:
                 try:
                     found = self._odata_fetch_contacts(last_name_query, top=75)
                     for c in found:
-                        cid = c.get('id')
+                        cid = self._get_contact_id(c)
                         if cid:
                             contacts_by_id[cid] = c
                 except requests.RequestException as exc:
@@ -573,7 +622,7 @@ class MarketSharpService:
                 if normalized and normalized == target:
                     address_score = self._address_match_score(project_address, contact)
                     exact_candidates.append((address_score, {
-                        'id': contact.get('id'),
+                        'id': self._get_contact_id(contact),
                         'name': candidate or customer_name,
                         'raw': contact,
                     }))
@@ -602,22 +651,36 @@ class MarketSharpService:
                 if not normalized:
                     continue
 
-                # Substring containment check (original behaviour).
-                substring_match = target and (normalized in target or target in normalized)
+                # Substring containment check: only accept when the full target
+                # is contained WITHIN the candidate (e.g. target='John Smith'
+                # in candidate='John and Mary Smith').  The reverse direction
+                # (candidate contained in target) is too loose — e.g. 'Donald'
+                # falsely matches 'Donald Jones'.
+                substring_match = target and (target in normalized)
 
                 # Token-subset check: all significant target tokens appear in the candidate.
                 # This catches "Bill Hubbard" → "Bill and Christine Hubbard".
                 candidate_tokens = set(t for t in normalized.split() if len(t) >= 3)
                 token_subset_match = bool(target_tokens) and target_tokens.issubset(candidate_tokens)
 
-                if substring_match or token_subset_match:
+                # Fuzzy near-match: same last-name token + high string similarity.
+                # Catches spelling variants like "Maryanne"/"Marianne", "Natalya"/"Natalyn".
+                last_tok_target = target.split()[-1] if target else ''
+                last_tok_cand = normalized.split()[-1] if normalized else ''
+                near_match = (
+                    last_tok_target
+                    and last_tok_target == last_tok_cand
+                    and SequenceMatcher(None, target, normalized).ratio() >= 0.85
+                )
+
+                if substring_match or token_subset_match or near_match:
                     address_score = self._address_match_score(project_address, contact)
                     # Require address non-mismatch for token-subset-only matches.
                     # Score 0 = no address data (neutral) → accept. Score < 0 = address conflict → reject.
                     if token_subset_match and not substring_match and address_score < 0:
                         continue
                     fuzzy_candidates.append((address_score, {
-                        'id': contact.get('id'),
+                        'id': self._get_contact_id(contact),
                         'name': candidate or customer_name,
                         'raw': contact,
                     }))
@@ -738,4 +801,3 @@ class MarketSharpService:
                 comment_text=note_text,
                 extra_json=None,  # You may pass extra context if available
             )
-

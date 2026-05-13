@@ -1,0 +1,152 @@
+"""
+Recovery script: Fetches the 50 most recent CompanyCam projects and their comments, cross-references with the audit log, and requeues only missed comments before the cutoff.
+"""
+
+import os
+import sys
+import sqlite3
+from datetime import datetime
+from companycam_service import CompanyCamService
+from pending_queue import PendingCommentQueue
+from config import Config
+
+AUDIT_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'posted_comments_audit.db')
+QUEUE_DB = Config.PENDING_QUEUE_DB_PATH
+
+
+def get_last_posted_timestamp():
+    if not os.path.exists(AUDIT_DB):
+        print(f"[FATAL] Audit log not found at {AUDIT_DB}.")
+        sys.exit(1)
+    conn = sqlite3.connect(AUDIT_DB)
+    cur = conn.cursor()
+    cur.execute('SELECT MAX(posted_at) FROM posted_comments_audit')
+    row = cur.fetchone()
+    conn.close()
+    return int(row[0]) if row and row[0] else None
+
+
+def get_all_audit_event_ids():
+    conn = sqlite3.connect(AUDIT_DB)
+    cur = conn.cursor()
+    cur.execute('SELECT event_id FROM posted_comments_audit')
+    event_ids = set(row[0] for row in cur.fetchall() if row[0])
+    conn.close()
+    return event_ids
+
+
+def main():
+    import time
+    from datetime import timedelta
+    print("[INFO] Starting missed comment recovery...")
+    queue = PendingCommentQueue(QUEUE_DB)
+    cc = CompanyCamService()
+    # Prompt for days to go back
+    while True:
+        try:
+            days_back = int(input("How many days back should we look for missed comments? (e.g. 3): "))
+            if days_back < 1:
+                print("Please enter a positive integer.")
+                continue
+            break
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+
+    cutoff_ts = int((datetime.utcnow() - timedelta(days=days_back)).timestamp())
+    print(f"[INFO] Will look for comments created after {datetime.utcfromtimestamp(cutoff_ts)} UTC.")
+
+    projects = cc.list_recent_projects(limit=50)
+    print(f"[INFO] Fetched {len(projects)} recent projects from CompanyCam.")
+    audit_event_ids = get_all_audit_event_ids()
+    missed_comments = []
+    for proj in projects:
+        pid = proj.get('id')
+        if not pid:
+            continue
+        comments = cc.list_project_comments(pid)
+        for comment in comments:
+            event_id = str(comment.get('id'))
+            if not event_id or event_id in audit_event_ids:
+                continue
+            created_at = comment.get('created_at')
+            # CompanyCam API may return ISO8601 or timestamp; handle both
+            if isinstance(created_at, str):
+                try:
+                    created_ts = int(datetime.fromisoformat(created_at.replace('Z', '+00:00')).timestamp())
+                except Exception:
+                    created_ts = 0
+            else:
+                created_ts = int(created_at) if created_at else 0
+            if created_ts < cutoff_ts:
+                continue
+            missed_comments.append({
+                'event_id': event_id,
+                'project': proj.get('name', 'Unknown'),
+                'author': comment.get('creator_name', ''),
+                'content': comment.get('content', ''),
+                'created_at': created_ts,
+                'created_at_str': datetime.utcfromtimestamp(created_ts).strftime('%Y-%m-%d %H:%M:%S'),
+                'raw': {'project': proj, 'comment': comment}
+            })
+
+    if not missed_comments:
+        print("[DONE] No missed comments found in the selected window.")
+        return
+
+    # Display menu for user selection
+    print("\nMissed comments found:")
+    for idx, c in enumerate(missed_comments, 1):
+        print(f"[{idx}] Project: {c['project']} | Author: {c['author']} | Date: {c['created_at_str']}\n    {c['content']}")
+
+    print("\nSelect comments to queue:")
+    print("  a) All\n  n) None\n  Or enter comma-separated numbers (e.g. 1,3,5-7):")
+    selection = input("Your choice: ").strip().lower()
+
+    to_queue = []
+    if selection == 'a':
+        to_queue = missed_comments
+    elif selection == 'n' or not selection:
+        print("[INFO] No comments selected. Exiting.")
+        return
+    else:
+        chosen = set()
+        for part in selection.split(','):
+            part = part.strip()
+            if '-' in part:
+                try:
+                    start, end = map(int, part.split('-'))
+                    chosen.update(range(start, end+1))
+                except Exception:
+                    pass
+            else:
+                try:
+                    chosen.add(int(part))
+                except Exception:
+                    pass
+        to_queue = [missed_comments[i-1] for i in sorted(chosen) if 1 <= i <= len(missed_comments)]
+    if not to_queue:
+        print("[INFO] No valid comments selected. Exiting.")
+        return
+
+    print(f"[INFO] Queuing {len(to_queue)} missed comments...")
+    queued = []
+    for c in to_queue:
+        result = queue.enqueue(
+            event_id=c['event_id'],
+            customer_name=c['project'],
+            comment_text=c['content'],
+            author_name=c['author'],
+            payload=c['raw'],
+            last_error='Recovered missed comment (menu)'
+        )
+        if not result.get('already_queued'):
+            queued.append(c['event_id'])
+    print(f"[DONE] Queued {len(queued)} missed comments.")
+    if queued:
+        print("Event IDs:", ', '.join(queued))
+    else:
+        print("No new comments were queued.")
+
+if __name__ == "__main__":
+    main()
+
