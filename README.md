@@ -650,3 +650,13 @@ If you add or change integration behavior, update the README and any related ope
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## GCLID Reporting Module
+
+The GCLID offline-conversion reporting module now lives under the `gclid/` directory and is integrated for admin operations.
+
+- Module guide: `gclid/README.md`
+- Integration details: `gclid/docs/GCLID_INTEGRATION.md`
+- Systemd service/timer templates: `gclid/deploy/linux/`
+
+This module provides monthly Google Ads conversion export, eligibility auditing, and executive-summary generation for reporting workflows.
