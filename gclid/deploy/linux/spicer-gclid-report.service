@@ -1,0 +1,13 @@
+[Unit]
+Description=Spicer GCLID Conversion Report (monthly export)
+After=network.target
+
+[Service]
+Type=oneshot
+User=rellis
+WorkingDirectory=/home/rellis/spicer
+EnvironmentFile=/home/rellis/spicer/.env
+ExecStart=/home/rellis/spicer/.venv/bin/python3 /home/rellis/spicer/gclid/gclid_worker.py
+StandardOutput=append:/home/rellis/spicer/logs/gclid_worker.log
+StandardError=append:/home/rellis/spicer/logs/gclid_worker.log
+
