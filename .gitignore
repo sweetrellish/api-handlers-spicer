@@ -18,9 +18,9 @@ __pycache__/
 
 # VS Code workspace settings can be committed selectively if desired
 .vscode/*.code-workspace
-<<<<<<< HEAD
-README.md
-=======
-.marketsharp-profile-worker/Default/Session Storage/000899.log
-.marketsharp-profile-worker/Default/Session Storage/000900.ldb
->>>>>>> 96520cf (Initial commit)
+
+# MarketSharp browser profile/cache artifacts (runtime-generated)
+src/.marketsharp-profile-worker/
+src/.marketsharp-profile/
+.marketsharp-profile-worker/
+.marketsharp-profile/
