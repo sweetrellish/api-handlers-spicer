@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Spicer GCLID conversion report on the 1st of every month
+
+[Timer]
+# Fire at 06:00 on the 1st of each month
+OnCalendar=*-*-01 06:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

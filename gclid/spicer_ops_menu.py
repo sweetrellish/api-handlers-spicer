@@ -890,88 +890,6 @@ def menu_gclid_report():
 
     # Lazy-load gclid-ms module (file is named with a dash — use importlib)
     _gclid_mod = None
-    _gclid_dir = os.path.join(os.path.dirname(__file__), "gclid")
-
-    def _run_py_script(args, cwd=None):
-        try:
-            result = _sp.run(
-                [_sys.executable] + args,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=3600,
-            )
-            return result.returncode, result.stdout, result.stderr
-        except Exception as e:
-            return 1, "", str(e)
-
-    def _run_eligibility_audit_and_summary():
-        section("Eligibility Audit & Executive Summary")
-        default_csv = "Contacts (1).csv"
-        contacts_csv = input(f"  Contacts CSV [{default_csv}]: ").strip() or default_csv
-        month = input("  Month (YYYY-MM) [2025-02]: ").strip() or "2025-02"
-        limit_raw = input("  Limit contacts (0 = all) [0]: ").strip() or "0"
-        try:
-            limit = int(limit_raw)
-        except ValueError:
-            print(red("  Invalid limit; using 0."))
-            limit = 0
-
-        audit_name = f"eligibility_audit_{month}.csv"
-        summary_name = f"eligibility_summary_{month}.txt"
-
-        audit_script = os.path.join(_gclid_dir, "audit_contact_eligibility.py")
-        summary_script = os.path.join(_gclid_dir, "summarize_eligibility_audit.py")
-
-        if not os.path.exists(audit_script):
-            print(red(f"  Missing script: {audit_script}"))
-            pause()
-            return
-        if not os.path.exists(summary_script):
-            print(red(f"  Missing script: {summary_script}"))
-            pause()
-            return
-
-        print(dim("\n  Running eligibility audit..."))
-        audit_args = [
-            audit_script,
-            "--contacts-csv", contacts_csv,
-            "--month", month,
-            "--out", audit_name,
-            "--limit", str(max(0, limit)),
-        ]
-        code, out, err = _run_py_script(audit_args, cwd=_gclid_dir)
-        if out:
-            print(out)
-        if code != 0:
-            print(red("  Audit failed."))
-            if err:
-                print(dim(err.strip()[:1200]))
-            pause()
-            return
-
-        print(dim("\n  Building executive summary..."))
-        summary_args = [
-            summary_script,
-            "--audit-csv", audit_name,
-            "--month", month,
-            "--out", summary_name,
-        ]
-        code, out, err = _run_py_script(summary_args, cwd=_gclid_dir)
-        if out:
-            print(out)
-        if code != 0:
-            print(red("  Summary failed."))
-            if err:
-                print(dim(err.strip()[:1200]))
-            pause()
-            return
-
-        print(green("  Audit + summary complete."))
-        print(f"  Audit CSV: {bold(os.path.join(_gclid_dir, audit_name))}")
-        print(f"  Summary:   {bold(os.path.join(_gclid_dir, summary_name))}")
-        pause()
-
     def _load_gclid():
         nonlocal _gclid_mod
         if _gclid_mod:
@@ -1010,7 +928,6 @@ def menu_gclid_report():
             ("3", "Run report — custom date range"),
             ("4", "Preview report in terminal (no file written)"),
             ("5", "Show last exported CSV"),
-            ("6", "Run eligibility audit + executive summary"),
             ("b", "Back"),
         ]
         for k, label in opts:
@@ -1077,9 +994,6 @@ def menu_gclid_report():
             else:
                 print(yellow("  No exported CSVs found."))
             pause()
-            continue
-        elif choice == "6":
-            _run_eligibility_audit_and_summary()
             continue
         else:
             continue
