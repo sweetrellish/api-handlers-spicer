@@ -1,0 +1,26 @@
+========================================================================
+Eligibility Audit Executive Summary (2026-04)
+========================================================================
+
+Topline
+- Contacts audited: 304
+- Parseable GCLID: 112 (36.8%)
+- Any appointments/jobs found: 112 (36.8%)
+- Has event in target month: 11 (3.6%)
+- Would export: 2 (0.7%)
+
+Exclusion Breakdown
+- empty_or_unparseable_gclid: 192 (63.2%)
+- no_appointments_or_jobs: 0 (0.0%)
+- events_outside_month: 109 (35.9%)
+- rows_built_zero_despite_events: 1 (0.3%)
+- would_export: 2 (0.7%)
+
+Interpretation
+- Primary bottleneck is missing or unparseable GCLID values in inquiry notes.
+- Some contacts had events but still built zero rows; inspect row-build logic for edge cases.
+
+Recommended Actions
+- Standardize lead capture note format so GCLID value is always populated when key is present.
+- Track monthly conversion eligibility with this audit before report export.
+- For low-volume months, broaden reporting window or include lookback analysis where allowed.
