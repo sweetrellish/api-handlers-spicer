@@ -1,60 +1,61 @@
 # CompanyCam → MarketSharp Comment Sync
 
+Last updated: 2026-05-24
+
 ![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg)
-![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
+![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License](https://img.shields.io/github/license/sweetrellish/api-handlers-spicer)
 
 Webhook-driven integration that receives CompanyCam `comment.*` events and syncs them to the matching customer record in MarketSharp.
 
-This service is designed for small-footprint deployments and supports multiple write paths depending on what MarketSharp access is available in your environment:
-- direct REST note creation when API write access is enabled
-- OData-backed note writes where supported
-- local queueing plus optional UI-worker replay when MarketSharp must be driven through the browser
+Comments are matched by customer name (with address as a tie-breaker), then posted via the configured write path. If a direct API write is unavailable, comments are queued locally and replayed later through a Playwright-driven browser worker that operates against the live MarketSharp web UI.
 
 ## Prerequisites
-- Python 3.8+ (recommended)
+
+- Python 3.12+
 - [pip](https://pip.pypa.io/)
-- [Playwright](https://playwright.dev/python/), if using the UI poster worker
-- OS-specific dependencies (for example Chromium system dependencies; see Playwright install docs)
+- [Playwright](https://playwright.dev/python/) (required for the UI poster worker)
+- Chromium system dependencies (see `playwright install --with-deps chromium`)
 
 ## Table of Contents
+
 - [Architecture Overview](#architecture-overview)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [How It Works](#how-it-works)
-- [Queue UI Poster Worker](#queue-ui-poster-worker-logged-in-browser-bridge)
+- [Queue UI Poster Worker](#queue-ui-poster-worker)
 - [Contact Mapping Workflow](#contact-mapping-workflow)
+- [Queue Management Tools](#queue-management-tools)
 - [Security Hardening](#security-hardening)
 - [API Endpoints](#api-endpoints)
 - [Deployment](#deployment)
+- [Spicer Submodule Deployment](docs/SPICER_SUBMODULE_DEPLOYMENT.md)
+- [Confluence Handoff Report](docs/CONFLUENCE_HANDOFF_REPORT.md)
+- [Release Checklist](docs/RELEASE_CHECKLIST.md)
 - [CompanyCam Webhook Configuration](#companycam-webhook-configuration)
 - [Home Server Deployment Notes](#home-server-deployment-notes)
-- [macOS Production Setup](#macos-production-setup-recommended)
 - [Operations Runbook](#operations-runbook)
 - [Troubleshooting](#troubleshooting)
-- [Error Handling](#error-handling)
 - [Contributing](#contributing)
 - [License](#license)
 
+---
+
 ## Architecture Overview
 
-- CompanyCam delivers `comment.*` events to `/webhook/companycam`
-- The service validates webhook authenticity using the shared secret/token you configure for the webhook
-- Duplicate deliveries are ignored via a local SQLite dedupe store
-- The matching customer is resolved by name in MarketSharp
-- If MarketSharp is read-only, comments are stored in a local pending queue
-- If a MarketSharp write path is available, comment text is posted as a customer note
+CompanyCam delivers `comment.*` events to `/webhook/companycam`. The handler validates the webhook secret, deduplicates via SQLite, resolves the matching MarketSharp customer by name and address, then either posts the note directly or stores it in a local pending queue for the UI worker to replay.
 
-| `MARKETSHARP_MODE` | Description | Behavior |
-|---|---|---|
-| `auto` (default) | Detects best mode | Automatic selection |
-| `rest_write` | Uses MarketSharp REST write API | Posts notes in real time |
-| `odata_readonly` | OData only, cannot write directly | Queues comments locally |
-| `odata_write` | Writes via OData `Notes` entity | Posts where possible |
+| `MARKETSHARP_MODE` | Description |
+| ----------------- | ----------- |
+| `auto` (default) | Selects best available write path |
+| `rest_write` | Posts notes via MarketSharp REST API in real time |
+| `odata_readonly` | No write access — queues comments in SQLite |
+| `odata_write` | Writes to MarketSharp `Notes` entity via OData |
 
 ---
 
 ## API Flowchart
+
 ```mermaid
 flowchart TD
     A([CompanyCam<br>Webhook Event]):::black
@@ -69,7 +70,7 @@ flowchart TD
     H{{Found?}}:::white
     I{{API Mode}}:::white
     Q([Unmatched<br>Queue]):::darkred
-    Q2([Queue<br>Later]):::boldorange
+    Q2([Pending<br>Queue]):::boldorange
     R([Write OData]):::magenta
     S([POST REST]):::boldcyan
     Y([200 OK]):::boldgreen
@@ -99,7 +100,6 @@ flowchart TD
     classDef magenta fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
     classDef black fill:#282828,stroke:#3c3836,stroke-width:2px,color:#eee;
     classDef white fill:#fbf1c7,stroke:#ebdbb2,stroke-width:2px,color:#282828;
-    classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
     classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
     classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
     classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
@@ -107,86 +107,95 @@ flowchart TD
 ```
 
 ## Process Sequencing
+
 ```mermaid
 sequenceDiagram
-%%{init: {'theme': 'base', 'themeVariables': { 'actorBkg': 'silver', 'actorBorder': 'cyan', 'actorTextColor': 'magenta', 'textColor': 'cyan' }}}%%
-    actor CC@{"type": "database"} as CompanyCam
-    actor API@{ "type": "boundary"} as API Handler
-    actor MS@{ "type": "database" } as MarketSharp
+    participant CC as CompanyCam
+    participant API as API Handler
+    participant Q as Pending Queue
+    participant W as UI Worker
+    participant MS as MarketSharp
 
-    CC->>API: POST webhook event
-    API->>API: Verify & dedupe
-    alt Invalid webhook
+    CC->>API: POST /webhook/companycam
+    API->>API: Verify secret & deduplicate
+    alt Invalid secret
         API-->>CC: 401 Unauthorized
     else Duplicate event
         API-->>CC: 200 OK
-    else Valid & New
-        API->>API: Extract info
-        API->>MS: Search customer
+    else Valid & new
+        API->>MS: OData name search
         alt Customer not found
-            API->>API: Queue as unmatched
+            API->>Q: Store as unmatched
             API-->>CC: 200 OK
-        else REST mode
-            API->>MS: POST note
+        else rest_write mode
+            API->>MS: POST note via REST
             API-->>CC: 200 OK
-        else OData readonly
-            API->>API: Queue SQLite
+        else odata_readonly
+            API->>Q: Queue in SQLite
             API-->>CC: 200 OK
-        else OData write
-            API->>MS: POST OData
-            API-->>CC: 200 OK
+            W->>Q: Poll pending items
+            W->>MS: Post via browser UI
+            W->>Q: Mark posted
         end
     end
 ```
 
 ## Class Diagram
+
 ```mermaid
 classDiagram
-    class App.py {
-        run()
+    class app {
         handle_webhook()
         health_endpoint()
     }
-    class CompanyCamWebhookHandler {
+    class WebhookHandler {
         validate_signature()
         deduplicate()
         extract_comment()
     }
-    class MarketSharpAPI {
-        search_customer()
+    class MarketSharpService {
+        get_customer_by_name()
+        get_customer_by_address()
         post_note()
-        write_via_odata()
     }
-    class QueueManager {
-        queue_comment()
-        fetch_pending()
-        replay_pending()
+    class PendingCommentQueue {
+        enqueue()
+        claim_batch()
+        mark_posted()
+        mark_unmatched()
+    }
+    class QueueUIPoster {
+        open_customer_and_add_note()
+        resolve_direct_contact_url()
+        click_matching_result()
+        process_once()
     }
 
-    App.py --|> CompanyCamWebhookHandler : Methods
-    App.py --|> MarketSharpAPI : Methods
-    App.py --|> QueueManager : Methods
+    app --> WebhookHandler : uses
+    app --> MarketSharpService : uses
+    app --> PendingCommentQueue : uses
+    QueueUIPoster --> PendingCommentQueue : polls
+    QueueUIPoster --> MarketSharpService : OData lookup
 
-    class App.py:::boldpurple
-    class CompanyCamWebhookHandler:::boldorange
-    class MarketSharpAPI:::boldcyan
-    class QueueManager:::boldgreen
+    class app:::boldpurple
+    class WebhookHandler:::boldorange
+    class MarketSharpService:::boldcyan
+    class PendingCommentQueue:::boldgreen
+    class QueueUIPoster:::yellow
 
     classDef yellow fill:#fabd2f,stroke:#d79921,stroke-width:2px,color:#282828;
     classDef orange fill:#fe8019,stroke:#d65d0e,stroke-width:2px,color:#282828;
     classDef red fill:#fb4934,stroke:#cc241d,stroke-width:2px,color:#fff;
     classDef green fill:#b8bb26,stroke:#98971a,stroke-width:2px,color:#282828;
-    classDef aqua fill:#8ec07c,stroke:#458588,stroke-width:2px,color:#282828;
     classDef blue fill:#83a598,stroke:#076678,stroke-width:2px,color:#282828;
-    classDef purple fill:#b16286,stroke:#7c3a63,stroke-width:2px,color:#282828;
     classDef magenta fill:#d3869b,stroke:#b16286,stroke-width:2px,color:#282828;
-    classDef lime fill:#a3be8c,stroke:#5a7f43,stroke-width:2px,color:#282828;
-    classDef pink fill:#ff5faf,stroke:#af3a8e,stroke-width:2px,color:#282828;
     classDef boldcyan fill:#3fdcee,stroke:#005577,stroke-width:2px,color:#282828;
     classDef boldorange fill:#ffaf00,stroke:#cc8200,stroke-width:2px,color:#282828;
     classDef boldgreen fill:#5fff87,stroke:#227737,stroke-width:2px,color:#282828;
     classDef boldpurple fill:#875fff,stroke:#3e2b76,stroke-width:2px,color:#fff;
 ```
+
+---
 
 ## Quick Start
 
@@ -201,15 +210,122 @@ python app.py
 
 The application starts on `http://localhost:5001` by default.
 
-## Configuration
+## Mention Worker Test Commands
 
-### 1. Install Dependencies
+Use these commands from `tagger/` to validate mention notification behavior.
 
 ```bash
-pip install -r requirements.txt
+# 0) Bootstrap local venv and run the worker with any arguments
+./run_comment_worker.sh --tag rellis --message "@rellis relay test"
+
+# 1) Dry run (no email send)
+python3 comment_worker.py --tag rellis --message "@rellis relay test"
+
+# 2) Send test email via relay
+python3 comment_worker.py --send-test-emails --tag rellis --message "@rellis relay test"
+
+# 3) One-pass listen mode for MarketSharp/UI validation
+# Post a comment in MarketSharp UI, then run once to process current API payload and exit
+python3 comment_worker.py --mode listen --once --poll-seconds 5
+
+# 4) Continuous listen mode (production-like)
+python3 comment_worker.py --mode listen --poll-seconds 15
+
+# 5) Local dev seed + one-pass listen using the in-repo /comments feed
+./dev_seed_and_listen.sh "@rellis local listener test"
 ```
 
-### 2. Configure Environment Variables
+Notes:
+
+- `--once` prevents long-running loops during UI validation.
+- Duplicate comment IDs are suppressed during a running worker session.
+- In test mode, `--tag-all-mapped-users` mentions all users from `tagger/marketsharp_user-email.json` only.
+
+## Production Ops Check
+
+Use the packaged operations check script to validate service health quickly.
+
+```bash
+# From repo root (wrapper)
+bash ./marketsharp_comment_worker_ops_check.sh
+
+# Direct packaged script
+bash ./scripts/marketsharp_comment_worker_ops_check.sh marketsharp_comment_worker.service
+```
+
+The check includes:
+
+1. systemd service summary
+2. service metadata (active state, restart count, main PID)
+3. recent worker journal lines
+4. error-pattern scan for the last 24 hours
+
+## UI Poster Mention Formatting
+
+Queue posting uses plain canonical `@username` text.
+Wrapper-based note formatting is not part of the base deployment.
+
+```dotenv
+MARKETSHARP_NOTE_MENTION_STYLE=plain
+```
+
+Current deployment templates pin `MARKETSHARP_NOTE_MENTION_STYLE=plain`.
+
+Why this matters:
+
+1. preserves readable MarketSharp note text without literal wrapper artifacts
+2. keeps base mention/tagger parsing behavior stable (`@username` still present)
+
+## Mention Safety Guard Rails
+
+Production mention resolution is now explicit by default to avoid accidental fan-out:
+
+1. only explicit `@username` tokens are eligible recipients
+2. plain text words and names are ignored unless explicitly mapped and tagged
+3. a per-comment recipient cap blocks unusually broad sends
+
+```dotenv
+# default: true (recommended)
+# when true, only explicit @mentions are processed
+COMMENT_WORKER_REQUIRE_EXPLICIT_MENTIONS=true
+
+# default: 15
+# block sending when resolved recipients exceed this count
+COMMENT_WORKER_MAX_RECIPIENTS_PER_COMMENT=15
+
+# producer-side guard (queue note normalization path)
+# default: true, do not auto-convert standalone words into @mentions
+MARKETSHARP_NOTE_REQUIRE_EXPLICIT_MENTIONS=true
+```
+
+Ambiguous alias handling remains configurable for explicit mention edge cases:
+
+```dotenv
+# all (default): notify all users sharing an explicit ambiguous alias
+# skip: ignore ambiguous aliases
+COMMENT_WORKER_AMBIGUOUS_ALIAS_MODE=all
+```
+
+## Direct MarketSharp Note Monitoring
+
+Base behavior:
+
+1. Polls new MarketSharp notes for mention-notification/tagger flow.
+2. Does not attempt note text rewriting.
+3. CompanyCam queue poster + mention tagger remain the supported path.
+
+## Git Deployment Handoff
+
+For release readiness and repository handoff steps, see:
+
+- [Production Git Deployment Handoff](docs/PRODUCTION_GIT_DEPLOYMENT_HANDOFF.md)
+- [Mention Safety Runbook](docs/MENTION_SAFETY_RUNBOOK.md)
+
+---
+
+## Configuration
+
+### Environment Variables
 
 Copy `.env.example` to `.env` and fill in your credentials:
 
@@ -217,142 +333,242 @@ Copy `.env.example` to `.env` and fill in your credentials:
 cp .env.example .env
 ```
 
-Edit `.env` with your actual credentials:
+| Variable | Required | Description |
+| -------- | -------- | ----------- |
+| `COMPANYCAM_WEBHOOK_TOKEN` | Yes | CompanyCam access token |
+| `COMPANYCAM_WEBHOOK_SECRET` | Yes | Shared secret to validate webhook authenticity |
+| `MARKETSHARP_MODE` | No | `auto` (default), `odata_readonly`, `odata_write`, or `rest_write` |
+| `MARKETSHARP_COMPANY_ID` | Yes | From MarketSharp API Maintenance page |
+| `MARKETSHARP_USER_KEY` | Yes | From MarketSharp API Maintenance page |
+| `MARKETSHARP_SECRET_KEY` | Yes | From MarketSharp API Maintenance page |
+| `MARKETSHARP_ODATA_URL` | No | Default: `https://api4.marketsharpm.com/WcfDataService.svc` |
+| `MARKETSHARP_API_KEY` | `rest_write` only | REST API key |
+| `MARKETSHARP_BASE_URL` | `rest_write` only | REST base URL |
+| `IDEMPOTENCY_DB_PATH` | No | SQLite file for duplicate prevention |
+| `PENDING_QUEUE_DB_PATH` | No | SQLite queue file for deferred comments |
+| `MARKETSHARP_UI_*` | Worker only | Browser selectors and settings for the UI poster |
+| `MARKETSHARP_UI_CONTACT_URL_MAP_FILE` | No | JSON registry of project-keyed direct contact URLs |
 
-- `COMPANYCAM_WEBHOOK_TOKEN`: Your CompanyCam access token
-- `COMPANYCAM_WEBHOOK_SECRET`: Shared secret used to validate webhook authenticity
-- `MARKETSHARP_MODE`: `auto` (default), `odata_readonly`, `odata_write`, or `rest_write`
-- `MARKETSHARP_COMPANY_ID`: Company ID from the MarketSharp API Maintenance page
-- `MARKETSHARP_USER_KEY`: User key from the MarketSharp API Maintenance page
-- `MARKETSHARP_SECRET_KEY`: Secret key from the MarketSharp API Maintenance page
-- `MARKETSHARP_ODATA_URL`: OData endpoint (default `https://api4.marketsharpm.com/WcfDataService.svc`)
-- `MARKETSHARP_API_KEY`: Required when `MARKETSHARP_MODE=rest_write`
-- `MARKETSHARP_BASE_URL`: Required when `MARKETSHARP_MODE=rest_write`
-- `IDEMPOTENCY_DB_PATH`: SQLite file used to prevent duplicate webhook processing
-- `PENDING_QUEUE_DB_PATH`: SQLite queue file used when comments cannot be written yet
-- `MARKETSHARP_UI_*`: Optional selectors and browser settings used by the queue UI poster worker
-- `MARKETSHARP_UI_CONTACT_URL_MAP_FILE`: Optional JSON registry file for project-keyed direct contact URLs
-
-### 3. Run the Application
-
-```bash
-python app.py
-```
+---
 
 ## How It Works
 
-1. **CompanyCam sends a webhook** to `http://your-domain.com/webhook/companycam` with event type `comment.*`.
-2. **The handler extracts** the comment text, project ID, and optional author name.
-3. **The project is looked up** in CompanyCam to determine the customer name.
-4. **MarketSharp is searched** for a customer with the same name.
-5. **The project address is used as a tie-breaker** when available to reduce clerical name mismatches.
-6. **The comment is either posted immediately or queued** depending on the configured write mode.
+1. CompanyCam sends a `comment.*` webhook to `/webhook/companycam`.
+2. The handler verifies the shared secret and drops duplicates via SQLite.
+3. The comment text, project ID, and author name are extracted from the payload.
+4. CompanyCam is queried for the project's address, which is used as a tie-breaker for name matching.
+5. MarketSharp is searched via OData by customer name; fuzzy and address-anchored fallbacks apply.
+6. The comment is posted immediately (REST/OData write) or queued in `pending_comments.db` for the UI worker.
 
-In `rest_write` mode, the integration posts a note to the MarketSharp customer account.
+**Queue item lifecycle:**
 
-In `odata_readonly` mode, the integration stores the comment in `pending_comments.db` for later replay.
+```text
+pending → processing → posted
+                    ↘ unmatched  (name not found after all variants)
+                    ↘ true_fail  (retry_count ≥ 4 — needs manual review)
+```
 
-In `odata_write` mode, the integration writes to the MarketSharp `Notes` entity using the `Note` model fields (`contactId`, `contactType`, `note`, `dateTime`, `isActive`).
+---
 
-### Queue UI Poster Worker (Logged-In Browser Bridge)
+## Queue UI Poster Worker
 
-If MarketSharp API write remains blocked, you can run a local worker that reads `pending_comments.db` and posts notes through the MarketSharp web UI using a persistent logged-in browser profile.
+When MarketSharp API write access is unavailable, the `queue_ui_poster.py` worker reads `pending_comments.db` and posts each note through the MarketSharp web UI using a persistent Playwright browser session.
 
-1. Install dependencies and browser runtime:
+### Setup
 
 ```bash
 pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
-2. Set the UI worker variables in `.env`:
+Set the UI worker variables in `.env`:
 
-- `MARKETSHARP_UI_BASE_URL`: URL where the MarketSharp app loads after login
-- `MARKETSHARP_UI_USER_DATA_DIR`: Local browser profile directory to keep your session
-- `MARKETSHARP_UI_SEARCH_SELECTOR`: Global search input selector
-- `MARKETSHARP_UI_FIRST_RESULT_SELECTOR`: Selector for first customer result row/link
-- `MARKETSHARP_UI_NOTES_TAB_SELECTOR` (optional): Selector for Notes tab link before adding note
-- `MARKETSHARP_UI_NOTE_BUTTON_SELECTOR`: Selector to open add-note composer
-- `MARKETSHARP_UI_NOTE_INPUT_SELECTOR`: Selector for note text area/input
-- `MARKETSHARP_UI_NOTE_SAVE_SELECTOR`: Selector for save/submit button
-- `MARKETSHARP_UI_LOGIN_CHECK_SELECTOR` (optional): Selector visible only after login
-- `MARKETSHARP_UI_CONTACT_URL_MAP_FILE` (optional): JSON file containing `project:<CompanyCam project id>` to MarketSharp contact URLs
-- `MARKETSHARP_UI_CONTACT_URL_MAP` (optional): JSON overrides layered on top of the file-backed mappings
+| Variable | Description |
+| -------- | ----------- |
+| `MARKETSHARP_UI_BASE_URL` | MarketSharp dashboard URL after login |
+| `MARKETSHARP_UI_USER_DATA_DIR` | Browser profile directory (keeps session cookies) |
+| `MARKETSHARP_UI_USERNAME` | Auto-login username |
+| `MARKETSHARP_UI_PASSWORD` | Auto-login password |
+| `MARKETSHARP_UI_NOTES_TAB_SELECTOR` | Selector for the Notes tab |
+| `MARKETSHARP_UI_NOTE_BUTTON_SELECTOR` | Selector to open the add-note form |
+| `MARKETSHARP_UI_NOTE_INPUT_SELECTOR` | Selector for the note text area |
+| `MARKETSHARP_UI_NOTE_SAVE_SELECTOR` | Selector for the save button |
+| `MARKETSHARP_UI_CONTACT_URL_MAP_FILE` | JSON mapping file for direct contact URLs |
 
-3. Run the worker in a separate terminal:
+### Running
+
+The worker is managed by two systemd services:
 
 ```bash
-python queue_ui_poster.py
+sudo systemctl enable --now marketsharp_queue_worker.service
+sudo systemctl enable --now marketsharp_queue_worker_event.service
 ```
 
-On first launch, complete login manually in the opened browser window. The worker keeps polling queue rows and marks them as `posted` on success.
+Service files are in `deploy/linux/`. To restart both after a code change:
 
-### Contact Mapping Workflow
+```bash
+sudo systemctl restart marketsharp_queue_worker.service marketsharp_queue_worker_event.service
+```
 
-For accounts where MarketSharp search is unreliable in the worker, keep a project-keyed mapping registry in [marketsharp_contact_mappings.json](marketsharp_contact_mappings.json).
+Queue worker service startup now uses a launcher script at `src/run_queue_worker.sh` rather than a hard-coded Python path. The launcher picks a usable interpreter in this order:
 
-Format:
+1. `/home/rellis/spicer/.venv/bin/python`
+2. `/home/rellis/spicer/tagger/.venv/bin/python`
+3. `python3` from PATH
+
+This avoids systemd `203/EXEC` failures when a stale venv symlink exists.
+
+The worker resolves contacts in this priority order:
+
+1. **Project-keyed URL** from `marketsharp_contact_mappings.json`
+2. **Name-keyed URL** from the same mapping file
+3. **OData name match** — exact, then fuzzy with address tie-breaker
+4. **OData address match** — fallback when name search fails
+5. **UI search** — autocomplete-driven browser search across multiple query variants
+
+---
+
+## Contact Mapping Workflow
+
+For contacts where OData search is unreliable, keep a project-keyed URL registry in `marketsharp_contact_mappings.json`:
 
 ```json
 {
-  "project:103250413": "https://www2.marketsharpm.com/ContactDetail.aspx?contactOid=...&contactType=3"
+  "project:64476300": "https://www1.marketsharpm.com/ContactDetail.aspx?contactOid=bb34d2c8-77c6-42f9-8521-531f568f37ac&contactType=3",
+  "name:eleni stamoulis": "https://www1.marketsharpm.com/ContactDetail.aspx?contactOid=bb34d2c8-77c6-42f9-8521-531f568f37ac&contactType=3"
 }
 ```
 
-Recommended workflow:
-
 ```bash
-# See unresolved queue items grouped by CompanyCam project id
+# List queue items with no mapping resolved
 python scripts/list_unresolved_projects.py
 
-# Add or update a mapping directly from a queue item
-python scripts/upsert_contact_mapping.py --queue-id 6 --url "https://www2.marketsharpm.com/ContactDetail.aspx?contactOid=...&contactType=3"
+# Add or update a mapping from a queue item
+python scripts/upsert_contact_mapping.py --queue-id 6 \
+  --url "https://www1.marketsharpm.com/ContactDetail.aspx?contactOid=...&contactType=3"
 
-# Or add by known project id
-python scripts/upsert_contact_mapping.py --project-id 99770711 --url "https://www2.marketsharpm.com/ContactDetail.aspx?contactOid=...&contactType=3"
+# Add by known project id
+python scripts/upsert_contact_mapping.py --project-id 64476300 \
+  --url "https://www1.marketsharpm.com/ContactDetail.aspx?contactOid=...&contactType=3"
 ```
 
-The worker loads mappings from the file first and then applies any JSON mappings from `MARKETSHARP_UI_CONTACT_URL_MAP` as overrides.
+---
+
+## Queue Management Tools
+
+| Script | Purpose |
+| ------ | ------- |
+| `scripts/queue_review_menu.py` | Interactive review, requeue, or delete any queue item |
+| `scripts/edit_unmatched_queue_item.py` | Correct a customer name and reset to pending |
+| `scripts/delete_queue_items_by_name.py` | Delete queue items by ID or name |
+| `scripts/requeue_unmatched.py` | Reset all `unmatched` items to `pending` |
+| `scripts/requeue_posted.py` | Reset `posted` items to `pending` for re-push |
+| `scripts/posted_comments_audit.py` | Print or export the permanent audit log |
+| `review_true_fail.py` | List, review, and requeue `true_fail` items |
+
+### Common CLI usage
+
+```bash
+# Correct a misspelled name and requeue
+python scripts/edit_unmatched_queue_item.py
+
+# Requeue all unmatched items after fixing a contact in MarketSharp
+python scripts/requeue_unmatched.py
+
+# Inspect the queue directly
+sqlite3 pending_comments.db \
+  "SELECT id, customer_name, status, retry_count FROM pending_comments ORDER BY id DESC LIMIT 20;"
+```
+
+`true_fail` items (retry_count ≥ 4) require manual intervention. Common causes:
+
+- Customer name is misspelled in CompanyCam vs MarketSharp → use `edit_unmatched_queue_item.py`
+- Contact exists under a different `contactType` (1 or 2 instead of 3) → worker auto-retries types 1 and 2
+- Customer genuinely does not exist in MarketSharp → add to mapping file with the correct URL
+
+---
+
+## Deployment Runtime Guards
+
+`deploy/linux/deploy_marketsharp_comment_worker.sh` now includes production runtime sanitation checks on the remote host:
+
+1. Playwright Chromium executable check and automatic install when missing.
+2. Orphan browser process cleanup for non-worker Chromium/Playwright descendants.
+3. Cloudflared process-count guard.
+4. Queue browser process ceiling guard (descendants of active queue worker PID).
+
+Guard tuning via environment variables when launching deploy:
+
+```bash
+EXPECTED_CLOUDFLARED_COUNT=1 \
+MAX_QUEUE_BROWSER_PROCESSES=12 \
+bash ./deploy/linux/deploy_marketsharp_comment_worker.sh
+```
+
+If a guard fails, deploy exits non-zero and prints the violating process details.
+
+Additional strict gate (enabled by default):
+
+1. Post-bootstrap queue worker status guard requires:
+
+- `systemctl is-active marketsharp_queue_worker.service == active`
+- `ExecMainStatus == 0`
+
+1. If either check fails, deploy exits non-zero and prints recent queue worker logs.
+2. To disable this guard temporarily (not recommended for production):
+
+```bash
+QUEUE_STATUS_GUARD_REQUIRED=0 bash ./deploy/linux/deploy_marketsharp_comment_worker.sh
+```
+
+### Lock-In Baseline Checklist
+
+After deploy/reload, run the following on the server and save output for
+regression diffing:
+
+```bash
+systemctl is-active marketsharp_comment_worker.service
+systemctl is-active marketsharp_queue_worker.service
+systemctl is-active marketsharp_queue_worker_event.service
+systemctl is-active spicer-flask-api.service
+systemctl is-active spicer-webhook-sync.timer
+systemctl is-active spicer-webhook-sync.service
+
+systemctl show marketsharp_queue_worker.service -p ExecStart -p ExecMainStatus -p ActiveState -p SubState --no-pager
+systemctl show spicer-webhook-sync.service -p Result -p ExecMainStatus -p ActiveState -p SubState --no-pager
+
+journalctl -u marketsharp_queue_worker.service -n 25 --no-pager
+journalctl -u spicer-webhook-sync.service -n 25 --no-pager
+
+systemctl --failed --no-pager
+```
+
+---
 
 ## Security Hardening
 
-- Webhook requests are verified using `COMPANYCAM_WEBHOOK_SECRET`
-- Duplicate events are ignored using an idempotency SQLite store
-- Unauthorized webhook requests return `401`
-- Duplicate deliveries return HTTP `200` to stop retry loops safely
-- Secrets should be stored only in `.env` on the target machine and never committed
+- Webhook requests are verified using HMAC with `COMPANYCAM_WEBHOOK_SECRET`
+- Duplicate events are dropped via a SQLite idempotency store
+- Invalid webhook requests return `401 Unauthorized`
+- Duplicate deliveries return `200 OK` to stop CompanyCam retry loops
+- Secrets live only in `.env` on the target host and are never committed
 
-When creating the webhook, include the same shared secret in the payload `token` field.
+---
 
 ## API Endpoints
 
 ### `POST /webhook/companycam`
 
-Receives webhook events from CompanyCam. Expected payload:
+Receives events from CompanyCam. Typical responses:
 
-```json
-{
-  "type": "comment.created",
-  "data": {
-    "id": "comment_id",
-    "text": "Comment text",
-    "project_id": "project_id",
-    "user": {"name": "Author Name"}
-  }
-}
-```
-
-Typical responses:
-- `200 OK`: webhook accepted, duplicate ignored, or comment queued/posted successfully
-- `401 Unauthorized`: webhook secret/token validation failed
-- `400 Bad Request`: payload was malformed or could not be processed
-- `500 Internal Server Error`: unexpected application error
+| Status | Meaning |
+| ------ | ------- |
+| `200 OK` | Accepted, deduplicated, queued, or posted |
+| `401 Unauthorized` | Secret/token validation failed |
+| `400 Bad Request` | Malformed or unprocessable payload |
+| `500 Internal Server Error` | Unexpected application error |
 
 ### `GET /health`
-
-Health check endpoint used to verify the service is running.
-
-Example:
 
 ```bash
 curl -sS http://127.0.0.1:5001/health
@@ -360,181 +576,39 @@ curl -sS http://127.0.0.1:5001/health
 
 ### `POST /test`
 
-Test endpoint used to verify the handler path with a sample comment event.
+Verifies the handler path with a sample comment event. Keep this endpoint behind your normal network controls in production.
 
-If you expose this outside local development, place it behind your normal network controls and deployment safeguards.
+---
 
 ## Deployment
 
-### Using Gunicorn (Production)
+### Gunicorn (production)
 
 ```bash
 gunicorn -w 4 -b 0.0.0.0:5001 app:app
 ```
 
-### Using Docker
+Settings live in `gunicorn.conf.py`.
+
+### Docker
 
 ```bash
-# Build
 docker build -t companycam-marketsharp-sync .
-
-# Run
 docker run -p 5001:5001 --env-file .env companycam-marketsharp-sync
 ```
 
-Use port `5001` consistently for local containers, reverse proxies, and service managers unless you intentionally override it.
-
-## CompanyCam Webhook Configuration
-
-In CompanyCam, configure your webhook to:
-
-- **URL**: `https://your-domain.com/webhook/companycam`
-- **Event Type**: `comment.*`
-- **HTTP Method**: POST
-
-### Terminal-Only Setup (cURL)
-
-Use these commands to create or inspect webhooks without using the UI:
-
-```bash
-set -a; source .env; set +a
-export WEBHOOK_URL="https://your-domain.com/webhook/companycam"
-
-# List existing webhooks
-curl --request GET \
-  --url https://api.companycam.com/v2/webhooks \
-  --header "accept: application/json" \
-  --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
-
-# Create webhook for comment events
-curl --request POST \
-  --url https://api.companycam.com/v2/webhooks \
-  --header "accept: application/json" \
-  --header "content-type: application/json" \
-  --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN" \
-  --data "{\"url\":\"$WEBHOOK_URL\",\"scopes\":[\"comment.*\"],\"enabled\":true,\"token\":\"$COMPANYCAM_WEBHOOK_SECRET\"}"
-
-# Optional: remove a stale webhook by id
-curl --request DELETE \
-  --url https://api.companycam.com/v2/webhooks/<WEBHOOK_ID> \
-  --header "accept: application/json" \
-  --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
-```
-
-## Home Server Deployment Notes
-
-- Keep `.env` only on the server; never commit it.
-- If using `rsync`, exclude `.env` and include `.env.example`.
-- Run under a process manager such as `systemd`, `supervisord`, or `pm2` so webhook handling survives reboots.
-- Place nginx or Caddy in front for TLS termination and reverse proxy to the Flask/Gunicorn port on `5001`.
-
-### One-Command Deploy Script (server_name)
-
-This repo includes a helper script to transfer and bootstrap on the target host:
-
-```bash
-./scripts/deploy_to_server_name.sh
-```
-
-Override defaults as needed:
-
-```bash
-SERVER_HOST=server_name \
-SERVER_USER=youruser \
-SERVER_PATH=/opt/company \
-DEPLOY_SYSTEMD=1 \
-./scripts/deploy_to_server_name.sh
-```
-
-Notes:
-
-- `DEPLOY_SYSTEMD=1` installs and starts Linux `systemd` units when available.
-- `.env` is intentionally not copied; if missing on remote, it is created from `.env.example`.
-
-## macOS Production Setup (Recommended)
-
-This repo includes launch scripts and `launchd` service definitions so the webhook and UI worker survive terminal closes and machine reboots.
-
-### 1. Run webhook with Gunicorn
-
-Use the included launcher:
-
-```bash
-./scripts/start_webhook.sh
-```
-
-Gunicorn settings live in `gunicorn.conf.py`.
-
-### 2. Keep webhook + worker running via launchd
-
-One-time install:
-
-```bash
-mkdir -p "$HOME/Library/LaunchAgents"
-cp deploy/macos/com.company.webhook.plist "$HOME/Library/LaunchAgents/"
-cp deploy/macos/com.company.worker.plist "$HOME/Library/LaunchAgents/"
-launchctl load "$HOME/Library/LaunchAgents/com.company.webhook.plist"
-launchctl load "$HOME/Library/LaunchAgents/com.company.worker.plist"
-```
-
-Restart after changes:
-
-```bash
-launchctl unload "$HOME/Library/LaunchAgents/com.company.webhook.plist" || true
-launchctl unload "$HOME/Library/LaunchAgents/com.company.worker.plist" || true
-launchctl load "$HOME/Library/LaunchAgents/com.company.webhook.plist"
-launchctl load "$HOME/Library/LaunchAgents/com.company.worker.plist"
-```
-
-Logs are written to:
-
-- `logs/webhook.out.log`
-- `logs/webhook.err.log`
-- `logs/worker.out.log`
-- `logs/worker.err.log`
-
-### 3. Use a named Cloudflare tunnel (stable URL)
-
-Quick tunnels rotate URLs. For a permanent webhook URL, use a named tunnel.
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create company-webhook
-```
-
-Then copy `deploy/cloudflared/config.example.yml` to your local Cloudflare config path, fill in the tunnel UUID/hostname, and run:
-
-```bash
-cloudflared tunnel run company-webhook
-```
-
-After this, set the CompanyCam webhook URL to:
-
-`https://webhook.yourdomain.com/webhook/companycam`
-
-### Example rsync Command
-
-```bash
-rsync -avz --delete \
-  --exclude ".env" \
-  --exclude ".venv" \
-  --exclude "__pycache__" \
-  --exclude "*.pyc" \
-  /path/to/company/ user@server:/opt/company/
-```
-
-### Example systemd Unit
+### systemd service example
 
 ```ini
 [Unit]
-Description=CompanyCam to MarketSharp Webhook Service
+Description=CompanyCam → MarketSharp Webhook Service
 After=network.target
 
 [Service]
-User=company
-WorkingDirectory=/opt/company
-EnvironmentFile=/opt/company/.env
-ExecStart=/opt/company/.venv/bin/gunicorn -w 4 -b 0.0.0.0:5001 app:app
+User=rellis
+WorkingDirectory=/home/rellis/spicer/src
+EnvironmentFile=/home/rellis/spicer/src/.env
+ExecStart=/home/rellis/spicer/.venv/bin/gunicorn -w 4 -b 0.0.0.0:5001 app:app
 Restart=always
 RestartSec=5
 
@@ -542,7 +616,9 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-### Example nginx Reverse Proxy Block
+Service definitions for the webhook, both queue workers, and the true-fail checker are in `deploy/linux/`.
+
+### nginx reverse proxy
 
 ```nginx
 server {
@@ -559,19 +635,88 @@ server {
 }
 ```
 
+### rsync deploy
+
+```bash
+rsync -avz --delete \
+  --exclude ".env" \
+  --exclude ".venv" \
+  --exclude "__pycache__" \
+  --exclude "*.pyc" \
+  /path/to/spicer/ rellis@your-server:/home/rellis/spicer/src/
+```
+
+---
+
+## CompanyCam Webhook Configuration
+
+In CompanyCam, set:
+
+- **URL**: `https://your-domain.com/webhook/companycam`
+- **Event**: `comment.*`
+- **Token**: value of `COMPANYCAM_WEBHOOK_SECRET`
+
+### cURL setup
+
+```bash
+set -a; source .env; set +a
+export WEBHOOK_URL="https://your-domain.com/webhook/companycam"
+
+# List existing webhooks
+curl --request GET \
+  --url https://api.companycam.com/v2/webhooks \
+  --header "accept: application/json" \
+  --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
+
+# Create webhook
+curl --request POST \
+  --url https://api.companycam.com/v2/webhooks \
+  --header "accept: application/json" \
+  --header "content-type: application/json" \
+  --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN" \
+  --data "{\"url\":\"$WEBHOOK_URL\",\"scopes\":[\"comment.*\"],\"enabled\":true,\"token\":\"$COMPANYCAM_WEBHOOK_SECRET\"}"
+
+# Delete a stale webhook
+curl --request DELETE \
+  --url https://api.companycam.com/v2/webhooks/<WEBHOOK_ID> \
+  --header "accept: application/json" \
+  --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
+```
+
+---
+
+## Home Server Deployment Notes
+
+- Keep `.env` only on the server — never commit it. Use `.env.example` as the template.
+- Run under systemd so webhook handling survives reboots (units in `deploy/linux/`).
+- Place nginx or Caddy in front for TLS termination, reverse-proxying to port `5001`.
+- Use a named Cloudflare tunnel for a stable public HTTPS URL:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create spicer-webhook
+# Copy deploy/cloudflared/config.example.yml, fill in tunnel UUID and hostname, then:
+cloudflared tunnel run spicer-webhook
+```
+
+Set the CompanyCam webhook URL to `https://webhook.yourdomain.com/webhook/companycam`.
+
+### One-command deploy
+
+```bash
+./scripts/deploy_to_scoup2025sucoscrack.sh
+```
+
+---
+
 ## Operations Runbook
 
-### Health checks
-
-1. Confirm service health:
+### Health check
 
 ```bash
 curl -sS http://127.0.0.1:5001/health
-```
 
-2. Verify the webhook exists in CompanyCam:
-
-```bash
+# Verify the CompanyCam webhook is registered
 set -a; source .env; set +a
 curl --request GET \
   --url https://api.companycam.com/v2/webhooks \
@@ -579,63 +724,60 @@ curl --request GET \
   --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN"
 ```
 
-### Queue recovery
-
-3. Retry unmatched rows immediately after creating the missing customer in MarketSharp:
+### Queue status
 
 ```bash
-python requeue_unmatched.py
+sqlite3 pending_comments.db \
+  "SELECT status, COUNT(*) FROM pending_comments GROUP BY status;"
 ```
 
-This moves all `unmatched` rows back to `pending` so `queue_ui_poster.py` attempts them on the next poll.
-
-4. If running `odata_readonly`, confirm queued rows are being captured:
+### Worker logs
 
 ```bash
-sqlite3 pending_comments.db "select id,event_id,customer_name,status,created_at from pending_comments order by id desc limit 20;"
+journalctl -u marketsharp_queue_worker.service \
+           -u marketsharp_queue_worker_event.service \
+           --since "10 minutes ago" --no-pager
 ```
 
-5. If using the UI worker, verify posted queue rows:
+### True-fail review
+
+The `true_fail_checker` timer (in `deploy/linux/`) logs a warning when any `true_fail` items accumulate.
 
 ```bash
-sqlite3 pending_comments.db "select id,status,last_error,updated_at from pending_comments order by id desc limit 20;"
+# List and interactively requeue
+python review_true_fail.py --list
+python review_true_fail.py --requeue 508,509,510
+
+# Correct a customer name, then the worker picks it up automatically
+python scripts/edit_unmatched_queue_item.py
 ```
 
-### Logging and verification
+### Recover stale processing items
 
-6. Tail logs and create a test comment in CompanyCam:
+If the worker was killed mid-run, items stuck in `processing` are automatically recovered after ~30 seconds on the next worker tick. You can also reset them manually:
 
 ```bash
-journalctl -u company.service -f
+sqlite3 pending_comments.db \
+  "UPDATE pending_comments SET status='pending' WHERE status='processing';"
 ```
 
-7. If running `rest_write`, confirm the note appears in the matching MarketSharp customer record.
+---
 
 ## Troubleshooting
 
-- Check application logs first for webhook validation, dedupe, queue, or posting errors.
-- Use the `/test` endpoint to verify the handler path is functioning.
-- Ensure API keys are valid and have the necessary permissions.
-- Verify customer names are close enough to match; normalization and fuzzy fallback are applied.
-- In `odata_readonly` mode, queued comments are expected until write access is enabled.
-- Check firewall, reverse proxy, and tunnel settings if webhook delivery fails.
-- Ensure your process manager is running if the endpoint intermittently fails.
-- If Docker is used, verify both the container listener and host port mapping are set to `5001`.
+- Check worker logs first: `journalctl -u marketsharp_queue_worker.service -f`
+- Use `/test` to verify the webhook handler path is reachable.
+- Confirm API keys in `.env` have the necessary MarketSharp permissions.
+- Customer names that differ slightly between CompanyCam and MarketSharp are handled by fuzzy matching; if a contact still fails, use `edit_unmatched_queue_item.py` to correct the name.
+- In `odata_readonly` mode, `pending` items are expected until the UI worker posts them.
+- If the autocomplete search never fires in the UI worker, verify `MARKETSHARP_UI_BASE_URL` resolves to the correct domain (`www1.marketsharpm.com` after login).
+- Contacts under a non-default `contactType` (1 or 2 instead of 3) are auto-retried by the worker.
 
-## Error Handling
-
-The application logs errors and returns appropriate HTTP status codes:
-
-- `200`: Webhook processed successfully
-- `400`: Bad request or processing failed
-- `401`: Unauthorized webhook request
-- `500`: Internal server error
-
-All errors are logged to stdout for debugging.
+---
 
 ## Contributing
 
-Pull requests are welcome. Please open an [issue](https://github.com/sweetrellish/api-handlers-spicer/issues) first for bug reports, ideas, or larger changes so implementation details can be discussed before work begins.
+Pull requests are welcome. Open an [issue](https://github.com/sweetrellish/api-handlers-spicer/issues) first for bugs or larger changes so implementation details can be discussed.
 
 For local development:
 
@@ -645,7 +787,9 @@ cp .env.example .env
 python app.py
 ```
 
-If you add or change integration behavior, update the README and any related operational scripts in the same change when possible.
+Update the README and operational scripts in the same change when integration behavior changes.
+
+---
 
 ## License
 
