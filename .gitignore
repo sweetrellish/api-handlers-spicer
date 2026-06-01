@@ -19,21 +19,15 @@ __pycache__/
 # VS Code workspace settings can be committed selectively if desired
 .vscode/*.code-workspace
 
-# MarketSharp browser profile/cache artifacts (runtime-generated)
-src/.marketsharp-profile-worker/
-src/.marketsharp-profile/
-.marketsharp-profile-worker/
+# Queue UI poster debug screenshots/HTML dumps (saved to logs/debug/ at runtime)
+logs/debug/
+**/search_box_fail_*.png
+**/search_box_fail_*.html
+**/notes_tab_fail_*.png
+**/notes_tab_fail_*.html
+
+# Browser profile/cache artifacts (never commit)
 .marketsharp-profile/
-
-# Runtime audit exports
-audit_export_*.csv
-eligibility_summary_*.txt
-
-# Debug artifacts
-src/search_box_fail_*.html
-src/search_box_fail_*.png
-
-# Backup and runtime files
-backups/
-data/*.csv
-readme-*.txt
+.marketsharp-profile-worker/
+scripts/.marketsharp-profile/
+scripts/.marketsharp-profile-worker/
