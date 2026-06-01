@@ -12,8 +12,13 @@ from config import Config
 
 
 class WebhookHandler:
-    # Path to the user mapping file (edit as needed)
-    USER_MAPPING_FILE = os.getenv('COMPANYCAM_TO_MARKETSHARP_USER_MAP', 'companycam_to_marketsharp_user_map.json')
+    # Path to the user mapping file — defaults to data/ relative to repo root.
+    # Override with COMPANYCAM_TO_MARKETSHARP_USER_MAP env var.
+    _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    USER_MAPPING_FILE = os.getenv(
+        'COMPANYCAM_TO_MARKETSHARP_USER_MAP',
+        os.path.join(_REPO_ROOT, 'data', 'companycam_to_marketsharp_user_map.json'),
+    )
 
     def _load_user_mapping(self):
         try:
@@ -241,8 +246,9 @@ class WebhookHandler:
             else:
                 ms_author = None
 
-            # Fallback: use CompanyCam name if not mapped
-            author_name = ms_author or cc_user_name
+            # Use the CompanyCam display name for the [Author] prefix; fall back to
+            # the mapped MS username only if no CC name is available.
+            author_name = cc_user_name or ms_author
 
             if not project_id or not comment_text:
                 logging.info(
@@ -364,4 +370,3 @@ class WebhookHandler:
                 'success': False,
                 'message': f'Error processing webhook event: {str(e)}'
             }
-

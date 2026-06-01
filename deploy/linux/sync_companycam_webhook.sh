@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/home/rellis/spicer/.env}"
-CLOUDFLARED_UNIT="${CLOUDFLARED_UNIT:-spicer-cloudflared}"
+CLOUDFLARED_UNIT="${CLOUDFLARED_UNIT:-}"
 WEBHOOK_ENDPOINT_PATH="/webhook/companycam"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -35,6 +35,26 @@ if [[ -z "${COMPANYCAM_BASE_URL:-}" ]]; then
   COMPANYCAM_BASE_URL="https://api.companycam.com"
 fi
 
+resolve_cloudflared_unit() {
+  if [[ -n "${CLOUDFLARED_UNIT:-}" ]]; then
+    printf '%s' "$CLOUDFLARED_UNIT"
+    return 0
+  fi
+
+  local candidate
+  for candidate in spicer-cloudflared cloudflared-watchdog cloudflared; do
+    if systemctl status "${candidate}.service" >/dev/null 2>&1; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+
+  printf 'spicer-cloudflared'
+  return 0
+}
+
+CLOUDFLARED_UNIT="$(resolve_cloudflared_unit)"
+
 live_base_url="$(journalctl -u "$CLOUDFLARED_UNIT" --no-pager -n 120 | grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' | tail -1 || true)"
 
 if [[ -z "$live_base_url" ]]; then
@@ -44,7 +64,7 @@ fi
 
 target_url="${live_base_url}${WEBHOOK_ENDPOINT_PATH}"
 
-webhooks_json="$(curl --max-time 10 -sS --request GET \
+webhooks_json="$(curl -sS --request GET \
   --url "$COMPANYCAM_BASE_URL/v2/webhooks" \
   --header "accept: application/json" \
   --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN")"
@@ -79,13 +99,13 @@ if [[ "$mode" == "ok" ]]; then
 fi
 
 if [[ -n "$stale_id" ]]; then
-  curl --max-time 10 -sS --request DELETE \
+  curl -sS --request DELETE \
     --url "$COMPANYCAM_BASE_URL/v2/webhooks/$stale_id" \
     --header "accept: application/json" \
     --header "authorization: Bearer $COMPANYCAM_WEBHOOK_TOKEN" >/dev/null
 fi
 
-create_resp="$(curl --max-time 10 -sS --request POST \
+create_resp="$(curl -sS --request POST \
   --url "$COMPANYCAM_BASE_URL/v2/webhooks" \
   --header "accept: application/json" \
   --header "content-type: application/json" \

@@ -1,21 +1,23 @@
 [Unit]
 Description=MarketSharp Pending Comment Queue Worker
 After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=rellis
 WorkingDirectory=/home/rellis/spicer
-ExecStart=/usr/bin/python3 /home/rellis/spicer/pending_queue_worker.py
+Environment=PYTHONPATH=/home/rellis/spicer/scripts:/home/rellis/spicer/src:/home/rellis/spicer
+Environment=MARKETSHARP_UI_HEADLESS=true
+# Use verified canonical @username text (MarketSharp-safe, no markdown wrappers).
+Environment=MARKETSHARP_NOTE_MENTION_STYLE=plain
+ExecStart=/usr/bin/bash /home/rellis/spicer/src/run_queue_worker.sh
 Restart=on-failure
 RestartSec=5
-# Optional: Limit restarts to avoid rapid-fail loops
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-

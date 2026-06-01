@@ -1,6 +1,6 @@
 [Unit]
 Description=Sync CompanyCam webhook URL to current Cloudflared tunnel
-After=network-online.target spicer-cloudflared.service
+After=network-online.target spicer-cloudflared.service cloudflared-watchdog.service
 Wants=network-online.target
 
 [Service]
@@ -8,7 +8,7 @@ Type=oneshot
 User=rellis
 WorkingDirectory=/home/rellis/spicer
 EnvironmentFile=/home/rellis/spicer/.env
-ExecStart=/home/rellis/spicer/deploy/linux/sync_companycam_webhook.sh
+ExecStart=/usr/bin/bash /home/rellis/spicer/deploy/linux/sync_companycam_webhook.sh
 
 [Install]
 WantedBy=multi-user.target

@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=rellis
-WorkingDirectory=/home/rellis/spicer/src
+WorkingDirectory=/home/rellis/spicer
 Environment="PATH=/home/rellis/spicer/.venv/bin:/usr/bin"
 ExecStart=/home/rellis/spicer/.venv/bin/gunicorn -c /home/rellis/spicer/gunicorn.conf.py app:app
 Restart=on-failure
@@ -15,4 +15,3 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-
