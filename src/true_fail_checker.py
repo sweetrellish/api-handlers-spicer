@@ -14,7 +14,7 @@ TEST_DB = '/tmp/test_pending_queue.db'
 if os.path.exists(TEST_DB):
     DB_PATH = TEST_DB
 else:
-    from config.config import Config
+    from config import Config
     DB_PATH = Config.PENDING_QUEUE_DB_PATH
 
 LOGFILE = '/tmp/true_fail_checker.log'
@@ -47,4 +47,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

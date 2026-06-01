@@ -19,6 +19,7 @@ src/companycam_service.py
 src/pending_queue.py
 src/queue_ui_poster.py
 src/run_queue_worker.sh
+src/true_fail_checker.py
 tagger/comment_worker.py
 tagger/marketsharp_service.py
 tagger/run_comment_worker.sh

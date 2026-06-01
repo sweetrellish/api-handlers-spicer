@@ -6,23 +6,32 @@ human-authenticated browser session can be maintained.
 
 import logging
 import os
+import sys
 import time
 import json
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse, urlunparse
 
-from dotenv import load_dotenv
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
+# Ensure local module imports work no matter how systemd launches this script.
+_SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.dirname(_SRC_DIR)
+_SCRIPTS_DIR = os.path.join(_ROOT_DIR, 'scripts')
+for _p in (_ROOT_DIR, _SRC_DIR, _SCRIPTS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-from companycam_service import CompanyCamService
-from config import Config
-from marketsharp_service import MarketSharpService
-from mapping_registry import load_mapping_env, load_mapping_file, merge_contact_mappings
-from pending_queue import PendingCommentQueue
-from posted_comments_audit import log_posted_comment
+from playwright.sync_api import Error as PlaywrightError  # noqa: E402
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
+
+from companycam_service import CompanyCamService  # noqa: E402
+from config import Config  # noqa: E402
+from marketsharp_service import MarketSharpService  # noqa: E402
+from mention_style import apply_note_mention_style  # noqa: E402
+from mapping_registry import load_mapping_env, load_mapping_file, merge_contact_mappings  # noqa: E402
+from pending_queue import PendingCommentQueue  # noqa: E402
+from posted_comments_audit import log_posted_comment  # noqa: E402  # type: ignore
 
 
 @dataclass
@@ -48,6 +57,7 @@ class UiConfig:
     login_company_id: str
     login_username: str
     login_password: str
+    note_mention_style: str
 
 
 _cc_service_instance = None
@@ -93,6 +103,7 @@ def build_ui_config():
         login_company_id=os.getenv('MARKETSHARP_UI_LOGIN_COMPANY_ID', '').strip(),
         login_username=os.getenv('MARKETSHARP_UI_LOGIN_USERNAME', '').strip(),
         login_password=os.getenv('MARKETSHARP_UI_LOGIN_PASSWORD', '').strip(),
+        note_mention_style=os.getenv('MARKETSHARP_NOTE_MENTION_STYLE', 'plain').strip().lower() or 'plain',
     )
 
 
@@ -109,6 +120,13 @@ def validate_ui_config(ui_cfg):
     missing = [name for name, value in required.items() if not value]
     if missing:
         raise ValueError(f'Missing required UI worker env vars: {", ".join(missing)}')
+
+    if ui_cfg.note_mention_style != 'plain':
+        logging.warning(
+            'Ignoring unsupported MARKETSHARP_NOTE_MENTION_STYLE=%s; forcing plain base behavior.',
+            ui_cfg.note_mention_style,
+        )
+        ui_cfg.note_mention_style = 'plain'
 
 
 def wait_for_login(page, ui_cfg):
@@ -928,7 +946,9 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
             else:
                 fail_reason = f'Autocomplete AJAX returned no matching results for {customer_query!r} (url={page.url})'
             try:
-                shot_path = f'search_box_fail_{item_id}.png'
+                _debug_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs', 'debug')
+                os.makedirs(_debug_dir, exist_ok=True)
+                shot_path = os.path.join(_debug_dir, f'search_box_fail_{item_id}.png')
                 page.screenshot(path=shot_path)
                 logging.warning(
                     '%s; screenshot saved to %s',
@@ -937,7 +957,7 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
             except Exception as shot_exc:
                 logging.warning('Could not take search-box-fail screenshot: %s', shot_exc)
             try:
-                html_path = f'search_box_fail_{item_id}.html'
+                html_path = os.path.join(_debug_dir, f'search_box_fail_{item_id}.html')
                 with open(html_path, 'w', encoding='utf-8') as _f:
                     _f.write(page.content())
                 # Log all input elements found on the page so we can identify the right selector
@@ -1016,7 +1036,9 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
             # Save a screenshot + HTML dump for diagnosis — path is in the worker's cwd
             item_id = item.get('id', 'unknown')
             try:
-                screenshot_path = f'notes_tab_fail_{item_id}.png'
+                _debug_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs', 'debug')
+                os.makedirs(_debug_dir, exist_ok=True)
+                screenshot_path = os.path.join(_debug_dir, f'notes_tab_fail_{item_id}.png')
                 page.screenshot(path=screenshot_path)
                 logging.warning(
                     'Notes tab not found via normal or JS click. Screenshot saved to %s (url=%s). '
@@ -1031,7 +1053,7 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
                     ui_cfg.notes_tab_selector,
                 )
             try:
-                html_path = f'notes_tab_fail_{item_id}.html'
+                html_path = os.path.join(_debug_dir, f'notes_tab_fail_{item_id}.html')
                 with open(html_path, 'w', encoding='utf-8') as _f:
                     _f.write(page.content())
                 logging.warning('Notes-tab-fail page HTML saved to %s', html_path)
@@ -1065,18 +1087,80 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
     note_input.click()
     note_input.fill(note_text)
 
-    save_button, save_selector_used, save_frame = pick_visible_locator_in_frames(
-        page,
-        [
-            ui_cfg.note_save_selector,
-            'input[id*="ContactNoteSaveButton"]',
-            'button:has-text("Save")',
-            'a:has-text("Save")',
-        ],
-        timeout_ms=20000,
-    )
+    # Build the candidate save selectors.  The DevExpress "Save" button is an
+    # <a> tag with "ContactNoteSaveButton" in its ID, rendered *inside* the
+    # NoteEditor iframe — not in the outer ContactDetail.aspx frame.  Generic
+    # selectors like a:has-text("Save") also match unrelated anchors in the
+    # outer frame, so we search the note-editor frame specifically first.
+    _save_selectors = [s for s in [
+        ui_cfg.note_save_selector,
+        'a[id*="ContactNoteSaveButton"]',
+        'input[id*="ContactNoteSaveButton"]',
+        '[id*="ContactNoteSaveButton"]',
+        'input[value="Save"]',
+        'button:has-text("Save")',
+        'a:has-text("Save")',
+    ] if s]
+
+    save_button = save_selector_used = save_frame = None
+    _note_frame_obj = next((f for f in page.frames if f.url == note_input_frame), None)
+    if _note_frame_obj is not None:
+        _save_deadline = time.time() + 20.0
+        while time.time() < _save_deadline and save_button is None:
+            for _sel in _save_selectors:
+                _loc = _note_frame_obj.locator(_sel)
+                if _loc.count() > 0 and _loc.first.is_visible():
+                    save_button, save_selector_used, save_frame = _loc.first, _sel, note_input_frame
+                    break
+            if save_button is None:
+                page.wait_for_timeout(250)
+
+    if save_button is None:
+        logging.warning(
+            'Save button not found in note-editor frame (%s); falling back to all frames.',
+            note_input_frame,
+        )
+        save_button, save_selector_used, save_frame = pick_visible_locator_in_frames(
+            page, _save_selectors, timeout_ms=5000
+        )
+
     logging.info('Using save selector: %s (frame=%s)', save_selector_used, save_frame)
-    save_button.click(timeout=15000)
+    # The DevExpress "Add Note" popup creates a dxpcModalBackLite backdrop that
+    # covers the page at a high z-index.  On some contact pages the backdrop's
+    # hit-test area overlaps the note-editor iframe, so Playwright's pointer-events
+    # check fails even though the Save link is visually inside the popup.
+    # Strip pointer-events from every backdrop div in all frames before clicking.
+    for _frame in page.frames:
+        try:
+            _frame.evaluate(
+                "() => { document.querySelectorAll('.dxpcModalBackLite, [class*=\"ModalBack\"]')"
+                ".forEach(function(el) { el.style.setProperty('pointer-events','none','important'); }); }"
+            )
+        except Exception:
+            pass
+    try:
+        save_button.click(timeout=15000)
+    except PlaywrightTimeoutError:
+        # Backdrop fix didn't fully apply — dispatch a synthetic click via JS.
+        logging.warning(
+            'Save click still blocked after backdrop pointer-events fix; '
+            'falling back to JS dispatch on selector %s (frame=%s)',
+            save_selector_used, save_frame,
+        )
+        _js_clicked = False
+        for _frame in page.frames:
+            try:
+                if _frame.evaluate(
+                    "(sel) => { const el = document.querySelector(sel);"
+                    " if (el) { el.click(); return true; } return false; }",
+                    save_selector_used,
+                ):
+                    _js_clicked = True
+                    break
+            except Exception:
+                pass
+        if not _js_clicked:
+            raise
 
 
 def process_once(page, ui_cfg, queue):
@@ -1102,6 +1186,7 @@ def process_once(page, ui_cfg, queue):
             note_text = f'[{author_name.strip()}] {comment_text.strip()}'
         else:
             note_text = comment_text
+        note_text = apply_note_mention_style(note_text, ui_cfg.note_mention_style)
         retry_count = item.get('retry_count', 0)
 
         # Extract address info if present
@@ -1248,8 +1333,11 @@ def append_unmatched_dump(dump_path, item, error_text):
 
 def main():
     """Run queue worker loop until interrupted."""
-    # Override any previously-exported shell vars so .env is source of truth.
-    load_dotenv(override=True)
+    # Keep explicit process environment (systemd Environment=...) as highest
+    # precedence so production overrides are not clobbered by local .env values.
+    from env_bootstrap import load_repo_env
+
+    load_repo_env(_ROOT_DIR, override=False)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -1258,6 +1346,21 @@ def main():
 
     ui_cfg = build_ui_config()
     validate_ui_config(ui_cfg)
+
+    # Fail-safe for Linux service environments: if there is no X display, force
+    # headless mode even when environment layering accidentally sets False.
+    if not ui_cfg.headless and not os.getenv('DISPLAY'):
+        logging.warning(
+            'MARKETSHARP_UI_HEADLESS resolved to False with no DISPLAY; forcing headless mode.'
+        )
+        ui_cfg.headless = True
+
+    logging.info(
+        'Queue UI headless=%s (env MARKETSHARP_UI_HEADLESS=%r, DISPLAY=%r)',
+        ui_cfg.headless,
+        os.getenv('MARKETSHARP_UI_HEADLESS'),
+        os.getenv('DISPLAY'),
+    )
 
     queue = PendingCommentQueue(Config.PENDING_QUEUE_DB_PATH)
 
@@ -1272,6 +1375,7 @@ def main():
         wait_for_login(page, ui_cfg)
 
         logging.info('Queue UI poster started. Polling every %s seconds.', ui_cfg.poll_seconds)
+        logging.info('Queue UI poster mention style: %s', ui_cfg.note_mention_style)
         while True:
             recovered = queue.requeue_stale_processing(ui_cfg.processing_timeout_seconds)
             if recovered:
