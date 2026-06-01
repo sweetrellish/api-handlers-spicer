@@ -19,11 +19,23 @@ import json
 import argparse
 import html
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
 import requests
-from config import Config   
+from config import Config
+
+_DISPLAY_TZ_NAME = os.getenv("TAGGER_DISPLAY_TZ", "America/New_York")
+try:
+    _DISPLAY_TZ = ZoneInfo(_DISPLAY_TZ_NAME) if ZoneInfo else timezone.utc
+    _DISPLAY_TZ_LABEL = ""
+except Exception:
+    _DISPLAY_TZ = timezone.utc
+    _DISPLAY_TZ_LABEL = " UTC"
 
 # Ensure src imports resolve even when launched outside wrapper scripts.
 _TAGGER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1098,10 +1110,15 @@ class CommentWorker:
 
     @staticmethod
     def _format_timestamp_display(ts_raw):
-        """Return a human-readable UTC timestamp for API and MarketSharp formats."""
+        """Return a human-readable timestamp in the configured display timezone."""
         raw = (ts_raw or "").strip()
         if not raw or raw == "\u2014":
             return "\u2014"
+
+        def _render(dt_utc):
+            local = dt_utc.astimezone(_DISPLAY_TZ)
+            label = _DISPLAY_TZ_LABEL or f" {local.tzname() or ''}".rstrip()
+            return local.strftime("%b %d, %Y at %I:%M %p") + label
 
         # MarketSharp legacy format: /Date(1779827940000)/
         match = re.match(r"^/Date\((\d{10,16})\)/$", raw)
@@ -1109,8 +1126,7 @@ class CommentWorker:
             try:
                 millis = int(match.group(1))
                 seconds = millis / 1000.0 if millis > 10_000_000_000 else float(millis)
-                dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
-                return dt.strftime("%b %d, %Y at %I:%M %p UTC")
+                return _render(datetime.fromtimestamp(seconds, tz=timezone.utc))
             except Exception:
                 return raw
 
@@ -1119,7 +1135,7 @@ class CommentWorker:
             dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(timezone.utc).strftime("%b %d, %Y at %I:%M %p UTC")
+            return _render(dt)
         except Exception:
             pass
 
@@ -1128,8 +1144,7 @@ class CommentWorker:
             try:
                 value = int(raw)
                 seconds = value / 1000.0 if value > 10_000_000_000 else float(value)
-                dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
-                return dt.strftime("%b %d, %Y at %I:%M %p UTC")
+                return _render(datetime.fromtimestamp(seconds, tz=timezone.utc))
             except Exception:
                 return raw
 
@@ -1261,7 +1276,10 @@ class CommentWorker:
         if not contact_id or contact_id == "\u2014" or not note_id or note_id == "\u2014":
             return None
 
-        due_date = datetime.now(timezone.utc) + timedelta(minutes=self.activity_notify_due_offset_minutes)
+        due_offset_minutes = self.activity_notify_due_offset_minutes
+        if due_offset_minutes is None:
+            due_offset_minutes = 30
+        due_date = datetime.now(timezone.utc) + timedelta(minutes=due_offset_minutes)
         display_token = username.split(":", 1)[1] if isinstance(username, str) and username.startswith("email:") else username
         notes = (
             f"{self.activity_notify_notes_prefix} @{display_token} mentioned in note {note_id}\n\n"

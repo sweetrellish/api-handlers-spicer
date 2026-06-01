@@ -16,3 +16,7 @@ scripts/marketsharp_comment_worker_ops_check.sh
 scripts/posted_comments_audit.py
 src/companycam_service.py
 src/pending_queue.py
+tagger/comment_worker.py
+tagger/marketsharp_service.py
+tagger/run_comment_worker.sh
+tagger/requirements.txt
