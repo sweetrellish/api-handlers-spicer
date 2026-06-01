@@ -5,6 +5,11 @@ deploy/linux/sync_companycam_webhook.sh
 deploy/linux/true_fail_checker.service
 deploy/linux/true_fail_checker.timer
 src/app.py
+src/config.py
 src/webhook_handler.py
 scripts/spicer_ops_menu.py
 spicer_ops_menu.py
+env_bootstrap.py
+scripts/recover_missed_comments.py
+scripts/import_google_groups_to_mentions.py
+scripts/marketsharp_comment_worker_ops_check.sh

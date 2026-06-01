@@ -2,12 +2,33 @@
 
 
 import os
-from dotenv import load_dotenv # type: ignore
+import sys
 
 # Compute project root (the parent of this file's parent directory)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-load_dotenv()
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from env_bootstrap import load_repo_env
+
+load_repo_env(PROJECT_ROOT, override=False)
+
+
+def _resolve_db_path(env_key, default_candidates):
+    """Resolve a database path with environment override and legacy fallbacks."""
+    explicit = os.getenv(env_key, "").strip()
+    if explicit:
+        if os.path.isabs(explicit):
+            return os.path.abspath(explicit)
+        return os.path.abspath(os.path.join(PROJECT_ROOT, explicit))
+
+    for candidate in default_candidates:
+        path = os.path.abspath(candidate)
+        if os.path.exists(path):
+            return path
+
+    return os.path.abspath(default_candidates[0])
 
 
 class Config:
@@ -48,13 +69,27 @@ class Config:
     MARKETSHARP_BASE_URL = os.getenv('MARKETSHARP_BASE_URL', '')
 
     # Idempotency persistence location (always absolute path)
-    IDEMPOTENCY_DB_PATH = os.getenv(
+    IDEMPOTENCY_DB_PATH = _resolve_db_path(
         'IDEMPOTENCY_DB_PATH',
-        os.path.join(PROJECT_ROOT, 'data/cc_webhook_dedupe.db')
+        [
+            os.path.join(PROJECT_ROOT, 'data/cc_webhook_dedupe.db'),
+            os.path.join(PROJECT_ROOT, 'cc_webhook_dedupe.db'),
+        ],
     )
-    PENDING_QUEUE_DB_PATH = os.getenv(
+    PENDING_QUEUE_DB_PATH = _resolve_db_path(
         'PENDING_QUEUE_DB_PATH',
-        os.path.join(PROJECT_ROOT, 'data/pending_comments.db')
+        [
+            os.path.join(PROJECT_ROOT, 'data/pending_comments.db'),
+            os.path.join(PROJECT_ROOT, 'pending_comments.db'),
+            os.path.join(PROJECT_ROOT, 'src/pending_comments.db'),
+        ],
+    )
+    AUDIT_DB_PATH = _resolve_db_path(
+        'AUDIT_DB_PATH',
+        [
+            os.path.join(PROJECT_ROOT, 'posted_comments_audit.db'),
+            os.path.join(PROJECT_ROOT, 'data/posted_comments_audit.db'),
+        ],
     )
 
 
@@ -96,4 +131,3 @@ def validate_config():
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
 validate_config()
-
