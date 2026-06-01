@@ -13,3 +13,6 @@ env_bootstrap.py
 scripts/recover_missed_comments.py
 scripts/import_google_groups_to_mentions.py
 scripts/marketsharp_comment_worker_ops_check.sh
+scripts/posted_comments_audit.py
+src/companycam_service.py
+src/pending_queue.py
