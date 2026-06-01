@@ -33,3 +33,5 @@ scripts/.marketsharp-profile/
 scripts/.marketsharp-profile-worker/
 **/.marketsharp-profile/
 **/.marketsharp-profile-worker/
+deploy/src/.marketsharp-profile/
+deploy/src/.marketsharp-profile-worker/
