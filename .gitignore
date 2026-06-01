@@ -35,3 +35,28 @@ scripts/.marketsharp-profile-worker/
 **/.marketsharp-profile-worker/
 deploy/src/.marketsharp-profile/
 deploy/src/.marketsharp-profile-worker/
+
+Generated browser profiles/caches
+**.marketsharp-profile
+**.marketsharp-profile-worker
+
+Debug dump artifacts
+src/notes_tab_fail_*.html
+src/notes_tab_fail_*.png
+src/search_box_fail_*.html
+src/search_box_fail_*.png
+
+Local editor/runtime noise
+.swp
+.step_out_.log
+logs/*.log
+
+Generated backups/snapshots
+backups/known_good_*.tar.gz
+backups/known_good_*/
+backups/known_good_latest*
+
+Generated gclid local exports/audits
+gclid/data/spicer_conversions_20*.csv
+gclid/eligibility_audit*.csv
+gclid/february_audit.csv
