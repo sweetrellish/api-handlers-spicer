@@ -1,0 +1,10 @@
+deploy/linux/marketsharp_queue_worker.service
+deploy/linux/spicer-flask-api.service
+deploy/linux/spicer-webhook-sync.service
+deploy/linux/sync_companycam_webhook.sh
+deploy/linux/true_fail_checker.service
+deploy/linux/true_fail_checker.timer
+src/app.py
+src/webhook_handler.py
+scripts/spicer_ops_menu.py
+spicer_ops_menu.py

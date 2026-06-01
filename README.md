@@ -1,6 +1,6 @@
 # CompanyCam → MarketSharp Comment Sync
 
-Last updated: 2026-05-24
+Last updated: 2026-05-26
 
 ![Build Status](https://github.com/sweetrellish/api-handlers-spicer/actions/workflows/ci.yml/badge.svg)
 ![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)
@@ -320,6 +320,55 @@ For release readiness and repository handoff steps, see:
 
 - [Production Git Deployment Handoff](docs/PRODUCTION_GIT_DEPLOYMENT_HANDOFF.md)
 - [Mention Safety Runbook](docs/MENTION_SAFETY_RUNBOOK.md)
+
+### Server Git Workflow (Clean Worktree)
+
+Use two server checkouts to avoid runtime/cache noise polluting commits:
+
+1. Runtime/API checkout: `/home/rellis/spicer` (branch `main`)
+2. Clean commit checkout: `/home/rellis/spicer-clean` (branch `server-clean-main`)
+
+Current setup (already configured):
+
+```bash
+ssh rellis@10.8.0.1
+cd /home/rellis/spicer
+git worktree list
+```
+
+Expected output includes both worktrees:
+
+```text
+/home/rellis/spicer        ... [main]
+/home/rellis/spicer-clean  ... [server-clean-main]
+```
+
+Daily commit/push flow (WebUI-friendly):
+
+```bash
+ssh rellis@10.8.0.1
+cd /home/rellis/spicer-clean
+git pull --rebase origin main
+# edit/test
+git add -p
+git commit -m "your change"
+git push origin server-clean-main
+```
+
+Then open a PR in Git WebUI: `server-clean-main -> main`.
+
+Safety notes:
+
+1. Do not use `/home/rellis/spicer` for regular commits; keep it for running services.
+2. Runtime service paths continue to use `/home/rellis/spicer` and are not interrupted by this Git workflow.
+3. If you need a fast status view from runtime checkout, filter known cache trees:
+
+```bash
+cd /home/rellis/spicer
+git status --short -- . \
+  ':(exclude)scripts/.marketsharp-profile-worker' \
+  ':(exclude)deploy/src/.marketsharp-profile-worker'
+```
 
 ---
 
@@ -710,6 +759,31 @@ Set the CompanyCam webhook URL to `https://webhook.yourdomain.com/webhook/compan
 ---
 
 ## Operations Runbook
+
+### Human Rollout Playbook (All Modules)
+
+Use this playbook to keep rollouts human-friendly and consistent across API, workers, deploy units, and scripts.
+
+```bash
+# Run from repo root on the server clone
+./scripts/rollout_one_command.sh --message "ops: targeted rollout" --drop-stash
+```
+
+What this does:
+
+1. Stashes unrelated drift.
+2. Restores only approved paths from `scripts/ship-files.default.txt`.
+3. Stages changed files only.
+4. Commits and pushes `main`.
+5. Verifies these services are active:
+
+- `spicer-flask-api.service`
+- `marketsharp_queue_worker.service`
+- `marketsharp_comment_worker.service`
+
+No further action is required when the script completes successfully and service checks return `active`.
+
+If you need a custom file list for one rollout, pass `--files <path>` and keep the list repo-relative.
 
 ### Health check
 
