@@ -60,3 +60,7 @@ Generated gclid local exports/audits
 gclid/data/spicer_conversions_20*.csv
 gclid/eligibility_audit*.csv
 gclid/february_audit.csv
+
+# Tagger PII data files (deploy out-of-band)
+tagger/marketsharp_user-email.json
+tagger/marketsharp_group_mentions.json
