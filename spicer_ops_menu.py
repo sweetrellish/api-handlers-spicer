@@ -1570,6 +1570,77 @@ def menu_missed_comment_catchup():
         print(red(f"  Failed to run recovery script: {e}"))
     pause()
 
+
+def menu_recover_missed_mentions():
+    """Run the tagger @mention catch-up script over recent MarketSharp notes."""
+    section("Tagger Mention Recovery (MarketSharp Notes)")
+    script_path = SCRIPTS_DIR / "recover_missed_mentions.py"
+    if not script_path.exists():
+        print(red(f"  Missing script: {script_path}"))
+        pause()
+        return
+
+    print(dim("  Re-runs the tagger @mention pipeline over recent MarketSharp notes."))
+    print(dim("  Dry-run is the default — emails are only sent if you choose 'apply'."))
+    print(dim("  Uses an isolated state file so the live worker is not disturbed."))
+    print()
+
+    raw_hours = input("  Lookback window in hours [24]: ").strip() or "24"
+    try:
+        hours = float(raw_hours)
+        if hours <= 0:
+            raise ValueError
+    except ValueError:
+        print(yellow("  Invalid hours value; aborting."))
+        pause()
+        return
+
+    apply_choice = input("  Send emails? Type 'apply' to actually send (default dry-run): ").strip().lower()
+    apply_flag = apply_choice == "apply"
+
+    cmd_args = ["--hours", str(hours)]
+    if apply_flag:
+        cmd_args.append("--apply")
+
+    # Tagger has its own venv. Fall back to main venv, then sys.executable.
+    _tagger_python = ROOT / "tagger" / ".venv" / "bin" / "python"
+    _main_python = ROOT / ".venv" / "bin" / "python3"
+    if _tagger_python.exists():
+        _python = str(_tagger_python)
+    elif _main_python.exists():
+        _python = str(_main_python)
+    else:
+        _python = sys.executable
+
+    env = os.environ.copy()
+    pythonpath_parts = [str(ROOT), str(ROOT / "src"), str(ROOT / "tagger"), str(SCRIPTS_DIR)]
+    existing = env.get("PYTHONPATH", "")
+    if existing:
+        pythonpath_parts.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
+    print()
+    print(dim(f"  Interpreter: {_python}"))
+    print(dim(f"  Mode: {'APPLY (will send emails)' if apply_flag else 'DRY-RUN (preview only)'}"))
+    print()
+
+    try:
+        code = subprocess.run(
+            [_python, str(script_path), *cmd_args],
+            cwd=str(ROOT),
+            env=env,
+            check=False,
+        ).returncode
+        print()
+        if code == 0:
+            print(green("  ✓ Tagger mention recovery completed."))
+        else:
+            print(yellow(f"  Recovery script exited with status {code}."))
+    except Exception as e:
+        print(red(f"  Failed to run mention recovery: {e}"))
+    pause()
+
+
 def _send_test_webhook():
     section("Send Test Webhook")
     if not _HAS_REQUESTS:
@@ -2282,6 +2353,7 @@ def menu_marketsharp_tagging_api():
             ("5", "Re-push Posted Comments", "Replay posted comments through queue worker"),
             ("6", "Contact Mapping", "Manage project/contact URL mapping overrides"),
             ("7", "Duplicate Check", "Scan queue DB for duplicate event IDs and texts"),
+            ("8", "Tagger Mention Recovery", "Replay tagger @mention emails for missed MarketSharp notes (dry-run by default)"),
             ("b", "Back", "Return to the main category menu"),
         ]
         render_menu_options(opts)
@@ -2300,29 +2372,17 @@ def menu_marketsharp_tagging_api():
             menu_contact_mapping()
         elif choice == "7":
             menu_check_duplicates()
+        elif choice == "8":
+            menu_recover_missed_mentions()
         elif choice == "b":
             return
 
 
 def menu_google_click_ad_reporting():
-    while True:
-        section("Google Click Ad Reporting")
-        opts = [
-            ("1", "GCLID & Conversion Report", "Build monthly/custom conversion exports and audits"),
-            ("2", "Eligibility Audit + Executive Summary", "Open reporting submenu (option 6)"),
-            ("3", "Backend Contact Roster Reconciliation", "Open reporting submenu (option 7)"),
-            ("b", "Back", "Return to the main category menu"),
-        ]
-        render_menu_options(opts)
-        choice = input("\n  > ").strip().lower()
-        if choice == "1":
-            menu_gclid_report()
-        elif choice == "2":
-            menu_gclid_report()
-        elif choice == "3":
-            menu_gclid_report()
-        elif choice == "b":
-            return
+    # The detailed reporting submenu lives in menu_gclid_report(); this wrapper
+    # previously exposed three options that all routed to the same submenu,
+    # which created confusing circular delegation. Call it directly instead.
+    menu_gclid_report()
 
 
 def menu_database_category():
@@ -2350,10 +2410,8 @@ def menu_system_maintenance():
     while True:
         section("System Maintenance")
         opts = [
-            ("1", "Diagnostics & Services", "Service restart controls and runtime diagnostics"),
+            ("1", "Diagnostics & Services", "Service restart controls, journal, health, env, mention-worker check"),
             ("2", "Predeploy DB Checks", "Run non-interactive DB preflight checks"),
-            ("3", "Local Health Check", "Call local health endpoint for service liveness"),
-            ("4", "Environment Config Summary", "Print key runtime environment settings"),
             ("b", "Back", "Return to the main category menu"),
         ]
         render_menu_options(opts)
@@ -2362,10 +2420,6 @@ def menu_system_maintenance():
             menu_diagnostics()
         elif choice == "2":
             _run_predeploy_checks_from_menu()
-        elif choice == "3":
-            _check_health()
-        elif choice == "4":
-            _show_env()
         elif choice == "b":
             return
 
