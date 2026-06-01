@@ -31,3 +31,5 @@ logs/debug/
 .marketsharp-profile-worker/
 scripts/.marketsharp-profile/
 scripts/.marketsharp-profile-worker/
+**/.marketsharp-profile/
+**/.marketsharp-profile-worker/
