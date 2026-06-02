@@ -42,8 +42,8 @@ systemctl show "$SERVICE_NAME" \
 section "Recent Journal (last ${TAIL_LINES})"
 journalctl -u "$SERVICE_NAME" -n "$TAIL_LINES" --no-pager || true
 
-section "Potential Errors (last 24h)"
-# This is a heuristic grep, not a full log classifier. It intentionally catches
-# common failure words so operators can triage quickly.
-journalctl -u "$SERVICE_NAME" --since "24 hours ago" --no-pager \
-  | grep -Ei "error|exception|traceback|failed|fatal" || echo "No error-like entries found in last 24 hours."
+# section "Potential Errors (last 24h)"
+# # This is a heuristic grep, not a full log classifier. It intentionally catches
+# # common failure words so operators can triage quickly.
+# journalctl -u "$SERVICE_NAME" --since "24 hours ago" --no-pager \
+#   | grep -Ei "error|exception|traceback|failed|fatal" || echo "No error-like entries found in last 24 hours."

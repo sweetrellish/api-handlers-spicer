@@ -25,6 +25,7 @@ Examples:
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -86,8 +87,18 @@ def load_live_processed_ids():
 def _parse_iso(ts_raw):
     if not ts_raw:
         return None
+    s = str(ts_raw).strip()
+    # MarketSharp legacy WCF format: /Date(1779827940000)/
+    m = re.match(r"^/Date\((\d{10,16})\)/$", s)
+    if m:
+        try:
+            millis = int(m.group(1))
+            seconds = millis / 1000.0 if millis > 10_000_000_000 else float(millis)
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        except Exception:
+            return None
     try:
-        dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)

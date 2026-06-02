@@ -73,7 +73,8 @@ def _resolve_db_path(env_key, default_candidates):
 
     return os.path.abspath(str(default_candidates[0]))
 
-
+# Mapping file is optional and may not exist until manual overrides are needed, 
+# so we check for an explicit env var first and then look for existing files without requiring one to be present.
 def _resolve_mapping_file_path():
     """Resolve mapping file path with fallback to data/ when root file is absent."""
     explicit = os.getenv("MARKETSHARP_UI_CONTACT_URL_MAP_FILE", "").strip()
@@ -139,7 +140,7 @@ AUDIT_DB_CANDIDATES = [
 # Worker services to check/control; these are the core queue processors that should be running.
 WORKER_SERVICES = [
     "marketsharp_queue_worker.service",
-    "marketsharp_queue_worker_event.service",
+    "marketsharp_comment_worker.service"
 ]
 # ALL_SERVICES includes the workers plus the Flask API service and the true_fail checker.
 ALL_SERVICES = WORKER_SERVICES + [
