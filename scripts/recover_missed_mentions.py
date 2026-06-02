@@ -30,6 +30,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+try:
+    import requests as _requests
+except ImportError:
+    _requests = None
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 for _p in (str(ROOT), str(ROOT / "src"), str(ROOT / "tagger"), str(SCRIPT_DIR)):
@@ -84,6 +89,52 @@ def load_live_processed_ids():
         return set()
 
 
+def _fetch_notes_in_window(worker, since_dt, top):
+    """Fetch MarketSharp notes using a date-filtered OData query.
+
+    The live worker's fetch_marketsharp_notes() uses $orderby which MarketSharp
+    OData intermittently rejects with 400.  This function tries a $filter-based
+    query first (gets exactly the right window), falls back to $orderby, then
+    to a bare $top-only fetch — ensuring we always get *recent* notes even when
+    ordering is unavailable.
+    """
+    import requests  # noqa: PLC0415
+
+    if not worker.ms_service:
+        print("[catchup] ms_service not initialised — cannot fetch notes")
+        return []
+
+    url = f"{worker.ms_service.odata_url}/Notes"
+    headers = worker.ms_service._odata_headers()
+    timeout = worker.http_timeout_seconds
+    # WCF Data Services DateTime literal (no timezone suffix)
+    since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    variants = [
+        ("filter_date", {"$filter": f"dateTime ge datetime'{since_str}'", "$top": str(top)}),
+        ("orderby_top", {"$orderby": "dateTime desc", "$top": str(top)}),
+        ("top_only",    {"$top": str(top)}),
+    ]
+
+    for variant_name, params in variants:
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=timeout)
+            if resp.status_code == 400:
+                print(f"[catchup] fetch variant '{variant_name}' returned 400 — trying next")
+                continue
+            resp.raise_for_status()
+            notes = worker._normalize_odata_payload(resp.json())
+            if isinstance(notes, list):
+                print(f"[catchup] fetch variant '{variant_name}' succeeded, got {len(notes)} notes")
+                return notes
+        except Exception as exc:  # noqa: BLE001
+            print(f"[catchup] fetch variant '{variant_name}' error: {exc} — trying next")
+            continue
+
+    print("[catchup] all fetch variants failed — no notes retrieved")
+    return []
+
+
 def _parse_iso(ts_raw):
     if not ts_raw:
         return None
@@ -133,7 +184,7 @@ def main():
     print(f"[catchup] live processed:    {len(live_processed)} note ids (skipped unless --include-live-processed)")
     print(f"[catchup] catchup processed: {len(catchup_processed)} note ids (always skipped)")
 
-    notes = worker.fetch_marketsharp_notes()
+    notes = _fetch_notes_in_window(worker, since_dt, args.top)
     print(f"[catchup] fetched {len(notes)} notes from MarketSharp OData (top={args.top})")
 
     eligible = []
