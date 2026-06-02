@@ -137,10 +137,10 @@ class CommentWorker:
         )
         try:
             self.max_recipients_per_comment = int(
-                os.getenv("COMMENT_WORKER_MAX_RECIPIENTS_PER_COMMENT", "15")
+                os.getenv("COMMENT_WORKER_MAX_RECIPIENTS_PER_COMMENT", "0")
             )
         except ValueError:
-            self.max_recipients_per_comment = 15
+            self.max_recipients_per_comment = 0
 
         self.user_email_map_file = os.getenv(
             "MARKETSHARP_USER_EMAIL_MAP_FILE",
@@ -186,10 +186,10 @@ class CommentWorker:
         )
         self.activity_notify_loop_guard_markers = self._load_loop_guard_markers()
         self.activity_notify_max_per_note = self._parse_optional_int(
-            os.getenv("ACTIVITY_NOTIFY_MAX_PER_NOTE", "5")
+            os.getenv("ACTIVITY_NOTIFY_MAX_PER_NOTE", "0")
         )
         if self.activity_notify_max_per_note is None:
-            self.activity_notify_max_per_note = 5
+            self.activity_notify_max_per_note = 0
         self.activity_notify_scheduled_by_employee_id = (
             os.getenv("ACTIVITY_NOTIFY_SCHEDULED_BY_EMPLOYEE_ID", "").strip() or None
         )
@@ -1212,7 +1212,7 @@ class CommentWorker:
         if recipient_count <= self.activity_notify_max_per_note:
             return False
         print(
-            f"[{source}] Activity notify safety block: resolved {recipient_count} recipients, "
+            f"[{source}] MarketSharp Activity-create safety block: resolved {recipient_count} recipients, "
             f"max allowed is {self.activity_notify_max_per_note}. Skipping activity creates."
         )
         return True
