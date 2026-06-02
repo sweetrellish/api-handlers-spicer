@@ -1154,17 +1154,13 @@ class CommentWorker:
         notes = self.fetch_marketsharp_notes()
         comments = []
         state_note_ids = set(self.state.get("processed_note_ids", []))
-        last_seen_timestamp = self.state.get("last_seen_note_timestamp", "")
 
         for note in notes:
             comment = self.build_comment_from_note(note)
             if not comment:
                 continue
             note_id = comment["id"]
-            timestamp = comment.get("timestamp", "")
             if note_id in state_note_ids:
-                continue
-            if last_seen_timestamp and timestamp and timestamp <= last_seen_timestamp:
                 continue
             comments.append(comment)
 
@@ -1610,7 +1606,7 @@ class CommentWorker:
         ts_esc = html.escape(ts_display)
         has_ts = bool(ts_display and ts_display != "\u2014")
         meta_line = (
-            'MarketSharp Worker Comment Service &nbsp;&#183;&nbsp; mention-tagger'
+            'MarketSharp Tagger Client &nbsp;&#183;&nbsp; Spicer API'
             + (f' &nbsp;&#183;&nbsp; {ts_esc}' if has_ts else '')
         )
         splash_ascii = (
@@ -1688,7 +1684,7 @@ class CommentWorker:
             '<td align="right" valign="top" style="padding-top:2px;">'
             '<span style="background-color:#c78c2a;color:#2a1a05;font-size:10px;font-weight:700;'
             'padding:4px 10px;border-radius:4px;letter-spacing:1.5px;font-family:monospace;">'
-            '&#9889; API ALERT</span></td>'
+            '&#9889; TAG ALERT</span></td>'
             '</tr></table></td></tr>'
             '<tr><td style="padding:0 32px 10px;">'
             '<span style="color:#d4a041;font-size:11px;font-family:monospace;font-weight:600;">'
