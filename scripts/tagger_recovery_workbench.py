@@ -1,0 +1,780 @@
+#!/usr/bin/env python3
+"""Tagger recovery workbench for MarketSharp note mention recovery.
+
+This tool builds a dedicated recovery queue with revision-aware idempotency,
+operator editing, requeue controls, apply/dry-run execution, and merged
+timeframe visibility with posted comment audit history.
+"""
+
+import argparse
+import csv
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+for _p in (str(ROOT), str(ROOT / "src"), str(ROOT / "tagger"), str(SCRIPT_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from config import Config  # noqa: E402
+from comment_worker import CommentWorker  # noqa: E402
+
+DEFAULT_DB = ROOT / "data" / "tagger_recovery.db"
+DEFAULT_REPORT_DIR = ROOT / "data"
+
+
+def now_epoch():
+    return int(time.time())
+
+
+def parse_iso_to_utc(value):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def parse_ms_timestamp(raw):
+    text = (raw or "").strip()
+    if not text:
+        return None
+
+    m = re.match(r"^/Date\((\d{10,16})\)/$", text)
+    if m:
+        value = int(m.group(1))
+        seconds = value / 1000.0 if value > 10_000_000_000 else float(value)
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+
+    iso = parse_iso_to_utc(text)
+    if iso is not None:
+        return iso
+
+    if re.fullmatch(r"\d{10,16}", text):
+        value = int(text)
+        seconds = value / 1000.0 if value > 10_000_000_000 else float(value)
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+
+    return None
+
+
+def dt_to_iso(dt):
+    if dt is None:
+        return ""
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def normalize_text_for_hash(text):
+    return " ".join((text or "").split()).strip().lower()
+
+
+def compute_text_hash(text):
+    normalized = normalize_text_for_hash(text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def build_revision_key(note_id, modified_raw, text):
+    modified_component = (modified_raw or "").strip() or "none"
+    text_hash = compute_text_hash(text)
+    return f"{note_id}|{modified_component}|{text_hash}"
+
+
+class RecoveryStore:
+    def __init__(self, db_path):
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.ensure_schema()
+
+    def connect(self):
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def ensure_schema(self):
+        with self.connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tagger_recovery_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    note_id TEXT NOT NULL,
+                    note_revision_key TEXT NOT NULL,
+                    note_timestamp TEXT,
+                    note_modified_timestamp TEXT,
+                    customer_name TEXT,
+                    author_name TEXT,
+                    original_text TEXT NOT NULL,
+                    working_text TEXT NOT NULL,
+                    parsed_mentions_json TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    last_error TEXT,
+                    source TEXT NOT NULL DEFAULT 'marketsharp_notes',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(note_id, note_revision_key)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tagger_recovery_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    queue_id INTEGER,
+                    note_id TEXT,
+                    note_revision_key TEXT,
+                    action TEXT NOT NULL,
+                    detail_json TEXT,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+            conn.commit()
+
+    def insert_candidate(self, row):
+        with self.connect() as conn:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO tagger_recovery_queue (
+                        note_id,
+                        note_revision_key,
+                        note_timestamp,
+                        note_modified_timestamp,
+                        customer_name,
+                        author_name,
+                        original_text,
+                        working_text,
+                        parsed_mentions_json,
+                        status,
+                        last_error,
+                        source,
+                        created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row["note_id"],
+                        row["note_revision_key"],
+                        row.get("note_timestamp", ""),
+                        row.get("note_modified_timestamp", ""),
+                        row.get("customer_name", ""),
+                        row.get("author_name", ""),
+                        row.get("original_text", ""),
+                        row.get("working_text", ""),
+                        row.get("parsed_mentions_json", "[]"),
+                        row.get("status", "pending"),
+                        row.get("last_error", ""),
+                        row.get("source", "marketsharp_notes"),
+                        row["created_at"],
+                        row["updated_at"],
+                    ),
+                )
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def log_action(self, *, queue_id, note_id, note_revision_key, action, detail):
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO tagger_recovery_audit (
+                    queue_id,
+                    note_id,
+                    note_revision_key,
+                    action,
+                    detail_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    queue_id,
+                    note_id,
+                    note_revision_key,
+                    action,
+                    json.dumps(detail or {}, sort_keys=True),
+                    now_epoch(),
+                ),
+            )
+            conn.commit()
+
+    def revision_already_sent(self, note_revision_key):
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM tagger_recovery_audit
+                WHERE note_revision_key=? AND action='apply_sent'
+                LIMIT 1
+                """,
+                (note_revision_key,),
+            ).fetchone()
+            return row is not None
+
+    def list_queue(self, statuses=None, limit=200):
+        query = "SELECT * FROM tagger_recovery_queue"
+        params = []
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            query += f" WHERE status IN ({placeholders})"
+            params.extend(statuses)
+        query += " ORDER BY updated_at DESC, id DESC LIMIT ?"
+        params.append(int(limit))
+        with self.connect() as conn:
+            return conn.execute(query, params).fetchall()
+
+    def get_queue_item(self, queue_id):
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM tagger_recovery_queue WHERE id=?",
+                (queue_id,),
+            ).fetchone()
+
+    def update_text(self, queue_id, working_text, parsed_mentions_json):
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE tagger_recovery_queue
+                SET working_text=?, parsed_mentions_json=?, updated_at=?
+                WHERE id=?
+                """,
+                (working_text, parsed_mentions_json, now_epoch(), queue_id),
+            )
+            conn.commit()
+
+    def set_status(self, queue_id, status, last_error=""):
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE tagger_recovery_queue
+                SET status=?, last_error=?, updated_at=?
+                WHERE id=?
+                """,
+                (status, (last_error or "")[:1000], now_epoch(), queue_id),
+            )
+            conn.commit()
+
+    def list_timeline(self, since_epoch, until_epoch):
+        items = []
+        with sqlite3.connect(str(Config.AUDIT_DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT
+                    posted_at AS event_epoch,
+                    'posted_audit' AS source,
+                    event_id,
+                    customer_name,
+                    author_name,
+                    comment_text,
+                    posted_at_iso AS timestamp_raw,
+                    NULL AS action,
+                    NULL AS detail_json
+                FROM posted_comments_audit
+                WHERE posted_at BETWEEN ? AND ?
+                ORDER BY posted_at ASC, id ASC
+                """,
+                (since_epoch, until_epoch),
+            ).fetchall()
+            items.extend(dict(r) for r in rows)
+
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    created_at AS event_epoch,
+                    'recovery_audit' AS source,
+                    note_id AS event_id,
+                    NULL AS customer_name,
+                    NULL AS author_name,
+                    NULL AS comment_text,
+                    NULL AS timestamp_raw,
+                    action,
+                    detail_json
+                FROM tagger_recovery_audit
+                WHERE created_at BETWEEN ? AND ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (since_epoch, until_epoch),
+            ).fetchall()
+            items.extend(dict(r) for r in rows)
+
+        items.sort(key=lambda x: (x.get("event_epoch") or 0, x.get("source") or ""))
+        return items
+
+
+def extract_modified_timestamp(note):
+    for key in (
+        "modifiedDate",
+        "ModifiedDate",
+        "updatedDate",
+        "UpdatedDate",
+        "dateModified",
+        "DateModified",
+    ):
+        value = note.get(key) if isinstance(note, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def extract_author_name(note):
+    if not isinstance(note, dict):
+        return ""
+    for key in ("createdBy", "CreatedBy", "author", "Author", "enteredBy", "EnteredBy"):
+        value = note.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def discover_candidates(args):
+    since_dt = None
+    until_dt = None
+    if args.since:
+        since_dt = parse_iso_to_utc(args.since)
+        if since_dt is None:
+            raise SystemExit("Invalid --since value, expected ISO8601")
+    if args.until:
+        until_dt = parse_iso_to_utc(args.until)
+        if until_dt is None:
+            raise SystemExit("Invalid --until value, expected ISO8601")
+    if since_dt is None and args.hours is not None:
+        since_dt = datetime.now(timezone.utc) - timedelta(hours=float(args.hours))
+
+    worker = CommentWorker(source_override="marketsharp_notes")
+    worker.validate_listen_config()
+    store = RecoveryStore(args.db)
+
+    notes = worker.fetch_marketsharp_notes()
+    inserted = 0
+    skipped_duplicate = 0
+    skipped_window = 0
+
+    for note in notes:
+        comment = worker.build_comment_from_note(note)
+        if not comment:
+            continue
+
+        note_id = str(comment.get("id") or "").strip()
+        text = comment.get("text") or ""
+        note_ts_raw = comment.get("timestamp") or ""
+        note_ts_dt = parse_ms_timestamp(note_ts_raw)
+
+        if since_dt and note_ts_dt and note_ts_dt < since_dt:
+            skipped_window += 1
+            continue
+        if until_dt and note_ts_dt and note_ts_dt > until_dt:
+            skipped_window += 1
+            continue
+
+        modified_raw = extract_modified_timestamp(note)
+        revision_key = build_revision_key(note_id, modified_raw, text)
+
+        mentions = worker.extract_mentions(text)
+        status = "pending" if mentions else "skipped"
+
+        job_info = comment.get("job_info") if isinstance(comment.get("job_info"), dict) else {}
+        customer_name = job_info.get("account_name") or job_info.get("company_name") or ""
+
+        row = {
+            "note_id": note_id,
+            "note_revision_key": revision_key,
+            "note_timestamp": note_ts_raw,
+            "note_modified_timestamp": modified_raw,
+            "customer_name": customer_name,
+            "author_name": extract_author_name(note),
+            "original_text": text,
+            "working_text": text,
+            "parsed_mentions_json": json.dumps(mentions),
+            "status": status,
+            "last_error": "",
+            "source": "marketsharp_notes",
+            "created_at": now_epoch(),
+            "updated_at": now_epoch(),
+        }
+
+        ok = store.insert_candidate(row)
+        if ok:
+            inserted += 1
+        else:
+            skipped_duplicate += 1
+
+    print(
+        f"discover complete: fetched={len(notes)} inserted={inserted} "
+        f"duplicates={skipped_duplicate} outside_window={skipped_window}"
+    )
+
+
+def cmd_list(args):
+    statuses = None
+    if args.status:
+        statuses = [s.strip() for s in args.status.split(",") if s.strip()]
+    store = RecoveryStore(args.db)
+    rows = store.list_queue(statuses=statuses, limit=args.limit)
+    if not rows:
+        print("no recovery queue rows")
+        return
+    for row in rows:
+        mentions = []
+        try:
+            mentions = json.loads(row["parsed_mentions_json"] or "[]")
+        except Exception:
+            pass
+        print(
+            f"#{row['id']} status={row['status']} note_id={row['note_id']} "
+            f"mentions={len(mentions)} updated={row['updated_at']}"
+        )
+
+
+def cmd_inspect(args):
+    store = RecoveryStore(args.db)
+    row = store.get_queue_item(args.id)
+    if not row:
+        print(f"queue id not found: {args.id}")
+        return
+    payload = dict(row)
+    print(json.dumps(payload, indent=2))
+
+
+def cmd_edit(args):
+    store = RecoveryStore(args.db)
+    row = store.get_queue_item(args.id)
+    if not row:
+        raise SystemExit(f"queue id not found: {args.id}")
+
+    worker = CommentWorker(source_override="marketsharp_notes")
+    text = args.text
+    if text is None:
+        print("Provide --text to update working text")
+        return
+
+    mentions = worker.extract_mentions(text)
+    store.update_text(args.id, text, json.dumps(mentions))
+    store.log_action(
+        queue_id=args.id,
+        note_id=row["note_id"],
+        note_revision_key=row["note_revision_key"],
+        action="edit",
+        detail={"mentions": mentions},
+    )
+    print(f"updated queue #{args.id}: mentions={mentions}")
+
+
+def cmd_requeue(args):
+    store = RecoveryStore(args.db)
+    row = store.get_queue_item(args.id)
+    if not row:
+        raise SystemExit(f"queue id not found: {args.id}")
+    store.set_status(args.id, "pending", last_error="manual requeue")
+    store.log_action(
+        queue_id=args.id,
+        note_id=row["note_id"],
+        note_revision_key=row["note_revision_key"],
+        action="requeue",
+        detail={"reason": "manual requeue"},
+    )
+    print(f"requeued #{args.id}")
+
+
+def _resolved_recipients(worker, text):
+    mentions = worker.extract_mentions(text)
+    recipients = []
+    for username in mentions:
+        email = worker.resolve_email_for_username(username)
+        if email:
+            recipients.append({"username": username, "email": email})
+    return mentions, recipients
+
+
+def _select_apply_rows(store, args):
+    if args.id:
+        row = store.get_queue_item(args.id)
+        return [row] if row else []
+
+    statuses = ["pending"]
+    if args.status:
+        statuses = [s.strip() for s in args.status.split(",") if s.strip()]
+    return store.list_queue(statuses=statuses, limit=args.limit)
+
+
+def _build_apply_job_info(worker, row):
+    note_id = str(row["note_id"] or "").strip()
+    note_payload = worker.fetch_note_by_id(note_id)
+    if isinstance(note_payload, dict) and note_payload:
+        comment = worker.build_comment_from_note(note_payload)
+        if isinstance(comment, dict):
+            info = comment.get("job_info")
+            if isinstance(info, dict):
+                return info
+
+    # Keep a minimal fallback for delivery continuity, but do not invent status values.
+    return {
+        "note_id": note_id,
+        "contact_id": "\u2014",
+        "job_status": "",
+        "account_name": str(row["customer_name"] or "").strip(),
+        "company_name": "",
+        "address_line": "",
+        "city_state_postal": "",
+        "country": "",
+        "timestamp": str(row["note_timestamp"] or "").strip(),
+    }
+
+
+def cmd_apply(args):
+    store = RecoveryStore(args.db)
+    rows = _select_apply_rows(store, args)
+    if not rows:
+        print("no rows selected for apply")
+        return
+
+    worker = CommentWorker(source_override="marketsharp_notes")
+    if args.apply:
+        worker.validate_email_config()
+
+    dry_run = not args.apply
+    mode = "DRY-RUN" if dry_run else "APPLY"
+    print(f"apply mode: {mode}, selected_rows={len(rows)}")
+
+    if not dry_run and not args.yes:
+        confirm = input("Type apply to confirm send actions: ").strip().lower()
+        if confirm != "apply":
+            print("aborted")
+            return
+
+    sent = 0
+    failed = 0
+    skipped = 0
+
+    for row in rows:
+        if row is None:
+            continue
+        queue_id = row["id"]
+        text = row["working_text"] or ""
+        note_revision_key = row["note_revision_key"]
+        job_info = _build_apply_job_info(worker, row)
+
+        if not dry_run and store.revision_already_sent(note_revision_key):
+            skipped += 1
+            store.set_status(queue_id, "sent", last_error="already applied for this revision")
+            store.log_action(
+                queue_id=queue_id,
+                note_id=row["note_id"],
+                note_revision_key=note_revision_key,
+                action="skip_already_sent",
+                detail={"dry_run": dry_run},
+            )
+            print(f"skip #{queue_id}: revision already sent")
+            continue
+
+        mentions, recipients = _resolved_recipients(worker, text)
+        if not mentions:
+            skipped += 1
+            if not dry_run:
+                store.set_status(queue_id, "skipped", last_error="no mentions")
+            store.log_action(
+                queue_id=queue_id,
+                note_id=row["note_id"],
+                note_revision_key=row["note_revision_key"],
+                action="skip_no_mentions" if dry_run else "set_skipped",
+                detail={"mentions": [], "dry_run": dry_run},
+            )
+            continue
+
+        if not recipients:
+            skipped += 1
+            if not dry_run:
+                store.set_status(queue_id, "true_fail", last_error="no mapped recipients")
+            store.log_action(
+                queue_id=queue_id,
+                note_id=row["note_id"],
+                note_revision_key=row["note_revision_key"],
+                action="skip_no_recipients" if dry_run else "set_true_fail",
+                detail={"mentions": mentions, "dry_run": dry_run},
+            )
+            continue
+
+        if not dry_run:
+            store.set_status(queue_id, "processing", last_error="")
+
+        try:
+            worker.process_comment_text(
+                text,
+                job_info=job_info,
+                send_email=not dry_run,
+                source="recovery",
+            )
+            if dry_run:
+                action = "preview_apply"
+            else:
+                action = "apply_sent"
+                store.set_status(queue_id, "sent", last_error="")
+                sent += 1
+            store.log_action(
+                queue_id=queue_id,
+                note_id=row["note_id"],
+                note_revision_key=row["note_revision_key"],
+                action=action,
+                detail={"mentions": mentions, "recipients": recipients, "dry_run": dry_run},
+            )
+            if dry_run:
+                print(f"preview #{queue_id}: mentions={mentions} recipients={len(recipients)}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            if not dry_run:
+                store.set_status(queue_id, "true_fail", last_error=str(exc))
+            store.log_action(
+                queue_id=queue_id,
+                note_id=row["note_id"],
+                note_revision_key=row["note_revision_key"],
+                action="apply_error",
+                detail={"error": str(exc), "dry_run": dry_run},
+            )
+            print(f"error on #{queue_id}: {exc}")
+
+    print(f"apply summary: sent={sent} failed={failed} skipped={skipped} dry_run={dry_run}")
+
+
+def cmd_timeline(args):
+    since = parse_iso_to_utc(args.since)
+    until = parse_iso_to_utc(args.until)
+    if since is None or until is None:
+        raise SystemExit("--since and --until are required ISO8601 values")
+
+    store = RecoveryStore(args.db)
+    rows = store.list_timeline(int(since.timestamp()), int(until.timestamp()))
+    if not rows:
+        print("no timeline rows")
+        return
+
+    for row in rows:
+        ts = datetime.fromtimestamp(row["event_epoch"], tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        if row["source"] == "posted_audit":
+            snippet = (row.get("comment_text") or "").replace("\n", " ")[:120]
+            print(f"{ts} posted_audit event_id={row.get('event_id')} customer={row.get('customer_name')} text={snippet}")
+        else:
+            print(f"{ts} recovery_audit event_id={row.get('event_id')} action={row.get('action')}")
+
+
+def cmd_export(args):
+    since = parse_iso_to_utc(args.since)
+    until = parse_iso_to_utc(args.until)
+    if since is None or until is None:
+        raise SystemExit("--since and --until are required ISO8601 values")
+
+    store = RecoveryStore(args.db)
+    rows = store.list_timeline(int(since.timestamp()), int(until.timestamp()))
+
+    output_base = args.output
+    if not output_base:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        output_base = str(DEFAULT_REPORT_DIR / f"recovery_timeline_{stamp}")
+
+    if args.format == "json":
+        out_path = output_base if output_base.endswith(".json") else output_base + ".json"
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, indent=2)
+        print(f"exported json: {out_path}")
+    else:
+        out_path = output_base if output_base.endswith(".csv") else output_base + ".csv"
+        headers = [
+            "event_epoch",
+            "source",
+            "event_id",
+            "customer_name",
+            "author_name",
+            "comment_text",
+            "timestamp_raw",
+            "action",
+            "detail_json",
+        ]
+        with open(out_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: row.get(k) for k in headers})
+        print(f"exported csv: {out_path}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Tagger recovery workbench")
+    parser.add_argument("--db", default=str(DEFAULT_DB), help="Recovery workbench sqlite path")
+
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_discover = sub.add_parser("discover", help="Discover candidate note revisions")
+    p_discover.add_argument("--hours", type=float, default=24.0)
+    p_discover.add_argument("--since", default="")
+    p_discover.add_argument("--until", default="")
+
+    p_list = sub.add_parser("list", help="List recovery queue")
+    p_list.add_argument("--status", default="")
+    p_list.add_argument("--limit", type=int, default=200)
+
+    p_inspect = sub.add_parser("inspect", help="Inspect queue item")
+    p_inspect.add_argument("--id", type=int, required=True)
+
+    p_edit = sub.add_parser("edit", help="Edit working text")
+    p_edit.add_argument("--id", type=int, required=True)
+    p_edit.add_argument("--text", required=True)
+
+    p_requeue = sub.add_parser("requeue", help="Requeue queue item")
+    p_requeue.add_argument("--id", type=int, required=True)
+
+    p_apply = sub.add_parser("apply", help="Apply or preview recovery sends")
+    p_apply.add_argument("--id", type=int, default=0)
+    p_apply.add_argument("--status", default="pending")
+    p_apply.add_argument("--limit", type=int, default=50)
+    p_apply.add_argument("--apply", action="store_true", help="Actually send emails")
+    p_apply.add_argument("--yes", action="store_true", help="Skip apply confirmation prompt")
+
+    p_timeline = sub.add_parser("timeline", help="Show merged timeline")
+    p_timeline.add_argument("--since", required=True)
+    p_timeline.add_argument("--until", required=True)
+
+    p_export = sub.add_parser("export", help="Export merged timeline")
+    p_export.add_argument("--since", required=True)
+    p_export.add_argument("--until", required=True)
+    p_export.add_argument("--format", choices=("json", "csv"), default="json")
+    p_export.add_argument("--output", default="")
+
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    if args.command == "discover":
+        discover_candidates(args)
+    elif args.command == "list":
+        cmd_list(args)
+    elif args.command == "inspect":
+        cmd_inspect(args)
+    elif args.command == "edit":
+        cmd_edit(args)
+    elif args.command == "requeue":
+        cmd_requeue(args)
+    elif args.command == "apply":
+        cmd_apply(args)
+    elif args.command == "timeline":
+        cmd_timeline(args)
+    elif args.command == "export":
+        cmd_export(args)
+    else:
+        raise SystemExit(f"Unknown command: {args.command}")
+
+
+if __name__ == "__main__":
+    main()

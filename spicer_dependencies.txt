@@ -1,0 +1,299 @@
+Dependency Report for: /home/rellis/spicer
+Total Python files scanned: 46
+Priority files (used by other Python files): 13
+Unreferenced Python files: 33
+
+=== PRIORITY: FILES USED BY OTHER SOURCES ===
+
+FILE: env_bootstrap.py
+  DEPENDENCIES:
+    - [file] .env
+  FOOTNOTE - USED IN:
+    - scripts/spicer_ops_menu.py
+    - spicer_ops_menu.py
+    - src/config.py
+    - src/queue_ui_poster.py
+    - tagger/comment_worker.py
+
+FILE: gclid/gclid_sync.py
+  DEPENDENCIES:
+    - [file] gclid/.env
+  FOOTNOTE - USED IN:
+    - src/portal_api.py
+
+FILE: gclid-ms.py
+  DEPENDENCIES:
+    - [file] .env
+  FOOTNOTE - USED IN:
+    - gclid_worker.py
+    - scripts/spicer_ops_menu.py
+    - spicer_ops_menu.py
+    - src/ops_api.py
+
+FILE: gclid_sync.py
+  DEPENDENCIES:
+    - [file] .env
+  FOOTNOTE - USED IN:
+    - gclid_worker.py
+    - scripts/spicer_ops_menu.py
+    - spicer_ops_menu.py
+
+FILE: recover_missed_comments.py
+  DEPENDENCIES:
+    - [py] scripts/posted_comments_audit.py
+  FOOTNOTE - USED IN:
+    - spicer_ops_menu.py
+    - src/ops_api.py
+
+FILE: scripts/import_google_groups_to_mentions.py
+  DEPENDENCIES:
+    - [file] tagger/marketsharp_group_mentions.json
+  FOOTNOTE - USED IN:
+    - scripts/spicer_ops_menu.py
+
+FILE: scripts/posted_comments_audit.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - recover_missed_comments.py
+    - scripts/recover_missed_comments.py
+    - tagger/marketsharp_service.py
+
+FILE: scripts/recover_missed_comments.py
+  DEPENDENCIES:
+    - [py] scripts/posted_comments_audit.py
+  FOOTNOTE - USED IN:
+    - scripts/spicer_ops_menu.py
+
+FILE: scripts/recover_missed_mentions.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - scripts/spicer_ops_menu.py
+
+FILE: spicer_ops_menu.py
+  DEPENDENCIES:
+    - [py] env_bootstrap.py
+    - [file] gclid-ms.py
+    - [file] gclid_sync.py
+    - [file] list-dependencies.sh
+    - [file] marketsharp_contact_mappings.json
+    - [file] recover_missed_comments.py
+  FOOTNOTE - USED IN:
+    - src/ops_api.py
+
+FILE: src/mapping_registry.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - scripts/list_unresolved_projects.py
+    - scripts/upsert_contact_mapping.py
+
+FILE: src/queue_ui_poster.py
+  DEPENDENCIES:
+    - [py] env_bootstrap.py
+    - [file] marketsharp_contact_mappings.json
+  FOOTNOTE - USED IN:
+    - scripts/list_unresolved_projects.py
+    - scripts/upsert_contact_mapping.py
+
+FILE: tagger/marketsharp_service.py
+  DEPENDENCIES:
+    - [py] scripts/posted_comments_audit.py
+  FOOTNOTE - USED IN:
+    - tagger/comment_worker.py
+
+=== UNREFERENCED PYTHON FILES (GROUPED) ===
+
+FILE: app.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: checkDuplicates.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: gclid_worker.py
+  DEPENDENCIES:
+    - [file] .env
+    - [file] gclid-ms.py
+    - [file] gclid_sync.py
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: gunicorn.conf.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/extract_posted_comments_from_logs.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/get_cc_webhook_debug.py
+  DEPENDENCIES:
+    - [file] .env
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/list_unresolved_projects.py
+  DEPENDENCIES:
+    - [py] src/mapping_registry.py
+    - [py] src/queue_ui_poster.py
+    - [file] data/marketsharp_contact_mappings.json
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/odata_agent.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/queue_review_menu.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/spicer_ops_menu.py
+  DEPENDENCIES:
+    - [py] env_bootstrap.py
+    - [file] gclid-ms.py
+    - [file] gclid_sync.py
+    - [file] marketsharp_contact_mappings.json
+    - [file] scripts/import_google_groups_to_mentions.py
+    - [file] scripts/marketsharp_comment_worker_ops_check.sh
+    - [file] scripts/recover_missed_comments.py
+    - [file] scripts/recover_missed_mentions.py
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/tagger_recovery_workbench.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/test_queue_logic.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/update_cc_webhook_url.py
+  DEPENDENCIES:
+    - [file] .env
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/update_cc_webhook_url_debug.py
+  DEPENDENCIES:
+    - [file] .env
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: scripts/upsert_contact_mapping.py
+  DEPENDENCIES:
+    - [py] src/mapping_registry.py
+    - [py] src/queue_ui_poster.py
+    - [file] data/marketsharp_contact_mappings.json
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/app.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/companycam_service.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/config.py
+  DEPENDENCIES:
+    - [py] env_bootstrap.py
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/delete_queue_items_by_name.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/extract_and_map_users.py
+  DEPENDENCIES:
+    - [file] data/companycam_to_marketsharp_user_map.json
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/marketsharp_service.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/mention_style.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/ops_api.py
+  DEPENDENCIES:
+    - [py] spicer_ops_menu.py
+    - [file] gclid-ms.py
+    - [file] recover_missed_comments.py
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/pending_queue.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/portal_api.py
+  DEPENDENCIES:
+    - [py] gclid/gclid_sync.py
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/portal_store.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/queue_admin.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/requeue_unmatched.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/review_true_fail.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/security.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/true_fail_checker.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: src/webhook_handler.py
+  DEPENDENCIES: (none found)
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)
+
+FILE: tagger/comment_worker.py
+  DEPENDENCIES:
+    - [py] env_bootstrap.py
+    - [file] tagger/comment_worker_state.json
+    - [file] tagger/marketsharp_group_mentions.json
+    - [file] tagger/marketsharp_service.py
+    - [file] tagger/marketsharp_user-email.json
+  FOOTNOTE - USED IN:
+    - (not referenced by other scanned Python files)

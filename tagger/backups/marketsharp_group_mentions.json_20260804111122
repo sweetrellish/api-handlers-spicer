@@ -1,0 +1,175 @@
+{
+  
+  "admins": {
+    "members": [
+      {"username": "clewis", "name": "Christie Lewis", "email": "christie@spicerbros.com"}, 
+      {"username": "kaitlyn", "name": "Kaitlyn Webster", "email": "kaitlyn@spicerbros.com"},
+      {"username": "mrogers", "name": "Mikayla Rogers", "email": "mikayla@spicerbros.com"},
+      {"username": "rlenehan", "name": "Rhonda Lenehan", "email": "rhonda@spicerbros.com"},
+      {"username": "rellis", "name": "Ryan Ellis", "email": "ryan@spicerbros.com"}
+    ]
+    },
+  "baths": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "briannaspicer", "name": "Brianna Spicer", "email": "brianna@spicerbros.com"},
+        {"username": "hspicer", "name": "Haille Spicer", "email": "haille@spicerbros.com"},
+        {"username": "jbradford", "name": "Jordan Bradford", "email": "jordanbradford@spicerbros.com"}
+
+
+    ]  
+  },
+  "callcenter": {
+    "members": [
+        {"username": "aferguson", "name": "Ashley Ferguson", "email": "ashley@spicerbros.com"},
+        {"username": "bwright", "name": "Brianna Wright", "email": "brianna@spicerbros.com"},
+        {"username": "lchang", "name": "Lisa Chang", "email": "lisa@spicerbros.com"},
+        {"username": "mdillingham", "name": "Morgan Dillingham", "email": "morgan@spicerbros.com"}
+    ]  
+  },
+  "hoa": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "bcahall", "name": "Brandon Cahall", "email": "brandon@spicerbros.com"},
+        {"username": "dmaddox", "name": "Dustin Maddox", "email": "dustin@spicerbros.com"},
+        {"username": "erebstock", "name": "Eric Rebstock", "email": "eric@spicerbros.com"}
+    ]  
+  },
+  "leadership": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "aferguson", "name": "Ashley Ferguson", "email": "ashley@spicerbros.com"},
+        {"username": "briannaspicer", "name": "Brianna Spicer", "email": "brianna@spicerbros.com"},
+        {"username": "hspicer", "name": "Haille Spicer", "email": "haille@spicerbros.com"},
+        {"username": "jbianco", "name": "John Bianco", "email": "john.bianco@spicerbros.com"},
+        {"username": "mwallace", "name": "Matt Wallace", "email": "matthewwallace@spicerbros.com"},
+        {"username": "mrogers", "name": "Mikayla Rogers", "email": "mikayla@spicerbros.com"},
+        {"username": "rlenehan", "name": "Rhonda Lenehan", "email": "rhonda@spicerbros.com"},
+        {"username": "rellis", "name": "Ryan Ellis", "email": "ryan@spicerbros.com"}
+    ]
+  },
+  "production": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "anorman", "name": "Allen Norman", "email": "allen@spicerbros.com"},
+        {"username": "bcahall", "name": "Brandon Cahall", "email": "brandon@spicerbros.com"},
+        {"username": "briannaspicer", "name": "Brianna Spicer", "email": "brianna@spicerbros.com"},
+        {"username": "briggin", "name": "Brandon Riggin", "email": "brandonriggin@spicerbros.com"},
+        {"username": "jbianco", "name": "John Bianco", "email": "john.bianco@spicerbros.com"},
+        {"username": "jdisaia", "name": "Joseph DiSaia", "email": "joseph.disaia@spicerbros.com"},
+        {"username": "jishman", "name": "James Ishman", "email": "jamie.ishman@spicerbros.com"},
+        {"username": "jmaddox", "name": "Josh Maddox", "email": "josh@spicerbros.com"},
+        {"username": "jrhall", "name": "Jr Hall", "email": "jr@spicerbros.com"},
+        {"username": "kbreasure", "name": "Khady Breasure", "email": "khady@spicerbros.com"},
+        {"username": "mmorin", "name": "Mike Morin", "email": "mike.morin@spicerbros.com"},
+        {"username": "mrogers", "name": "Mikayla Rogers", "email": "mikayla@spicerbros.com"},
+        {"username": "nblair", "name": "Nathaniel Blair", "email": "nathaniel@spicerbros.com"},
+        {"username": "rabbott", "name": "Ross Abbott", "email": "ross@spicerbros.com"},
+        {"username": "rtodd", "name": "Riley Todd", "email": "riley.todd@spicerbros.com"},
+        {"username": "sharrison", "name": "Stephen Harrison", "email": "stephen@spicerbros.com"},
+        {"username": "twentland", "name": "Tim Wentland", "email": "tim.wentland@spicerbros.com"},
+        {"username": "wjones", "name": "Willie Jones", "email": "willie@spicerbros.com"}
+    ]
+  },
+  "rush jobs": {
+    "members": [
+        {"username": "anorman", "name": "Allen Norman", "email": "allen@spicerbros.com"},
+        {"username": "bcahall", "name": "Brandon Cahall", "email": "brandon@spicerbros.com"},
+        {"username": "erebstock", "name": "Eric Rebstock", "email": "eric@spicerbros.com"},
+        {"username": "jbianco", "name": "John Bianco", "email": "john.bianco@spicerbros.com"},
+        {"username": "jbradford", "name": "Jordan Bradford", "email": "jordanbradford@spicerbros.com"},
+        {"username": "kwebster", "name": "Kaitlyn Webster", "email": "kaitlyn@spicerbros.com"},
+        {"username": "mspicer", "name": "Mikayla Spicer", "email": "mikayla@spicerbros.com"},
+        {"username": "rlenehan", "name": "Rhonda Lenehan", "email": "rhonda@spicerbros.com"}
+    ]
+  },
+  "sales": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "amartin", "name": "Artie Martin", "email": "artie.martin@spicerbros.com"},
+        {"username": "briannaspicer", "name": "Brianna Spicer", "email": "brianna@spicerbros.com"},
+        {"username": "cdesmarais", "name": "Chris Des Marais", "email": "chris.desmarais@spicerbros.com"},
+        {"username": "dmaddox", "name": "Dustin Maddox", "email": "dustin@spicerbros.com"},
+        {"username": "dtoppin", "name": "Dynell Toppin", "email": "dynell@spicerbros.com"},
+        {"username": "jbradford", "name": "Jordan Bradford", "email": "jordanbradford@spicerbros.com"},
+        {"username": "mwallace", "name": "Matt Wallace", "email": "matthewwallace@spicerbros.com"},
+        {"username": "mrogers", "name": "Mikayla Rogers", "email": "mikayla@spicerbros.com"},
+        {"username": "mspack", "name": "Mike Spack", "email": "mike.spack@spicerbros.com"},
+        {"username": "nquillin", "name": "Nate Quillin", "email": "nathan@spicerbros.com"},
+        {"username": "tevaristo", "name": "Tommy Evaristo", "email": "tommy.evaristo@spicerbros.com"},
+        {"username": "wrogers", "name": "Wesley Rogers", "email": "wes.rogers@spicerbros.com"},
+        {"username": "zwaggoner", "name": "Zack Waggoner", "email": "zack.waggoner@spicerbros.com"}
+    ]
+  },
+  "staff": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "aferguson", "name": "Ashley Ferguson", "email": "ashley@spicerbros.com"},
+        {"username": "amartin", "name": "Artie Martin", "email": "artie.martin@spicerbros.com"},
+        {"username": "anorman", "name": "Allen Norman", "email": "allen@spicerbros.com"},
+        {"username": "bcahall", "name": "Brandon Cahall", "email": "brandon@spicerbros.com"},
+        {"username": "briannaspicer", "name": "Brianna Spicer", "email": "brianna@spicerbros.com"},
+        {"username": "briggin", "name": "Brandon Riggin", "email": "brandonriggin@spicerbros.com"},
+        {"username": "bwright", "name": "Brianna Wright", "email": "briannawright@spicerbros.com"},
+        {"username": "ccam", "name": "Company Cam", "email": "ryan@spicerbros.com"},
+        {"username": "cdesmarais", "name": "Chris Des Marais", "email": "chris.desmarais@spicerbros.com"},
+        {"username": "clewis", "name": "Christie Lewis", "email": "christie@spicerbros.com"},
+        {"username": "creynolds", "name": "Chase Reynolds", "email": "chase.reynolds@spicerbros.com"},
+        {"username": "dmaddox", "name": "Dustin Maddox", "email": "dustin@spicerbros.com"},
+        {"username": "dtoppin", "name": "Dynell Toppin", "email": "dynell@spicerbros.com"},
+        {"username": "dwebster", "name": "David Webster", "email": "davidw@spicerbros.com"},
+        {"username": "erebstock", "name": "Eric Rebstock", "email": "eric@spicerbros.com"},
+        {"username": "hspicer", "name": "Haille Spicer", "email": "haille@spicerbros.com"},
+        {"username": "jbianco", "name": "John Bianco", "email": "john.bianco@spicerbros.com"},
+        {"username": "jbradford", "name": "Jordan Bradford", "email": "jordanbradford@spicerbros.com"},
+        {"username": "jcole", "name": "Jeremy Cole", "email": "cole@spicerbros.com"},
+        {"username": "jdisaia", "name": "Joseph DiSaia", "email": "joseph.disaia@spicerbros.com"},
+        {"username": "jishman", "name": "James Ishman", "email": "jamie.ishman@spicerbros.com"},
+        {"username": "jkirklow", "name": "Joe Kirklow", "email": "joe.kirklow@spicerbros.com"},
+        {"username": "jmaddox", "name": "Josh Maddox", "email": "josh@spicerbros.com"},
+        {"username": "jrhall", "name": "Jr Hall", "email": "jr@spicerbros.com"},
+        {"username": "kaitlyn", "name": "Kaitlyn Webster", "email": "kaitlyn@spicerbros.com"},
+        {"username": "kbreasure", "name": "Khady Breasure", "email": "khady@spicerbros.com"},
+        {"username": "lchang", "name": "Lisa Chang", "email": "lisa@spicerbros.com"},
+        {"username": "lklekotka", "name": "Leslie Klekotka", "email": "leslie@spicerbros.com"},
+        {"username": "mdillingham", "name": "Morgan Dillingham", "email": "morgan@spicerbros.com"},
+        {"username": "meckert", "name": "Mike Eckert", "email": "mikeeckert@spicerbros.com"},
+        {"username": "mmorin", "name": "Mike Morin", "email": "mike.morin@spicerbros.com"},
+        {"username": "mrogers", "name": "Mikayla Rogers", "email": "mikayla@spicerbros.com"},
+        {"username": "mspack", "name": "Mike Spack", "email": "mike.spack@spicerbros.com"},
+        {"username": "mwallace", "name": "Matt Wallace", "email": "matthewwallace@spicerbros.com"},
+        {"username": "nblair", "name": "Nathaniel Blair", "email": "nathaniel@spicerbros.com"},
+        {"username": "nquillin", "name": "Nate Quillin", "email": "nathan@spicerbros.com"},
+        {"username": "nsample", "name": "Nonyeia Sample", "email": "nonyeia@spicerbros.com"},
+        {"username": "rabbott", "name": "Ross Abbott", "email": "ross@spicerbros.com"},
+        {"username": "rellis", "name": "Ryan Ellis", "email": "ryan@spicerbros.com"},
+        {"username": "rlenehan", "name": "Rhonda Lenehan", "email": "rhonda@spicerbros.com"},
+        {"username": "rtodd", "name": "Riley Todd", "email": "riley.todd@spicerbros.com"},
+        {"username": "sharrison", "name": "Stephen Harrison", "email": "stephen@spicerbros.com"},
+        {"username": "tevaristo", "name": "Tommy Evaristo", "email": "tommy.evaristo@spicerbros.com"},
+        {"username": "twentland", "name": "Tim Wentland", "email": "tim.wentland@spicerbros.com"},
+        {"username": "wjones", "name": "Willie Jones", "email": "willie@spicerbros.com"},
+        {"username": "wrogers", "name": "Wesley Rogers", "email": "wes.rogers@spicerbros.com"},
+        {"username": "zwaggoner", "name": "Zack Waggoner", "email": "zack.waggoner@spicerbros.com"}
+       
+    ]
+  },
+  "service": {
+    "members": [
+        {"username": "bcahall", "name": "Brandon Cahall", "email": "brandon@spicerbros.com"},
+         {"username": "erebstock", "name": "Eric Rebstock", "email": "eric@spicerbros.com"},
+         {"username": "jbianco", "name": "John Bianco", "email": "john.bianco@spicerbros.com"},
+         {"username": "lklekotka", "name": "Leslie Klekotka", "email": "leslie@spicerbros.com"},
+         {"username": "rtodd", "name": "Riley Todd", "email": "riley.todd@spicerbros.com"},
+         {"username": "rabbott", "name": "Ross Abbott", "email": "ross@spicerbros.com"}
+ ]
+},
+  "warranty": {
+    "members": [
+        {"username": "Admin", "name": "Brian Spicer", "email": "brian.spicer@spicerbros.com"},
+        {"username": "jbianco", "name": "John Bianco", "email": "john.bianco@spicerbros.com"},
+        {"username": "mrogers", "name": "Mikayla Rogers", "email": "mikayla@spicerbros.com"},
+        {"username": "rlenehan", "name": "Rhonda Lenehan", "email": "rhonda@spicerbros.com"}
+    ]
+    }
+}

@@ -280,6 +280,8 @@ def _fill_search_query(page, search_candidates, customer_query, timeout_ms=400):
     normally.  The function is defined at script-block scope, so it IS globally
     callable from ``page.evaluate``.
     """
+    _disable_blocking_walkthrough_overlays(page)
+
     # Step 0: Widen viewport so the desktop search box is visible, then re-wire
     # the autocomplete widget to #searchTextBox via initializeSearch().
     try:
@@ -346,7 +348,11 @@ def _fill_search_query(page, search_candidates, customer_query, timeout_ms=400):
             continue
         try:
             loc = page.locator(selector)
-            loc.click(timeout=2000)
+            try:
+                loc.click(timeout=2000)
+            except PlaywrightTimeoutError:
+                _disable_blocking_walkthrough_overlays(page)
+                loc.click(timeout=2000, force=True)
             # Type character-by-character — fires real keydown/keypress/keyup/input
             # events that trigger MarketSharp's jQuery UI autocomplete AJAX handler.
             page.keyboard.type(customer_query, delay=40)
@@ -361,7 +367,11 @@ def _fill_search_query(page, search_candidates, customer_query, timeout_ms=400):
             desktop_candidates,
             timeout_ms=timeout_ms,
         )
-        search_box.click()
+        try:
+            search_box.click()
+        except PlaywrightTimeoutError:
+            _disable_blocking_walkthrough_overlays(page)
+            search_box.click(force=True)
         search_box.fill('')
         search_box.fill(customer_query)
         page.evaluate(
@@ -425,7 +435,11 @@ def click_matching_result(page, selectors, customer_name, timeout_ms=12000):
 
                 # Exact/variant match is safest; click immediately.
                 if label in target_variants:
-                    item.click(timeout=10000)
+                    _disable_blocking_walkthrough_overlays(page)
+                    try:
+                        item.click(timeout=10000)
+                    except PlaywrightTimeoutError:
+                        item.click(timeout=10000, force=True)
                     return selector, label
 
                 # Keep the closest safe fallback only when result starts with target.
@@ -443,11 +457,19 @@ def click_matching_result(page, selectors, customer_name, timeout_ms=12000):
                 seen_labels[selector] = labels_for_selector
 
         if best_prefix is not None:
-            best_prefix[0].click(timeout=10000)
+            _disable_blocking_walkthrough_overlays(page)
+            try:
+                best_prefix[0].click(timeout=10000)
+            except PlaywrightTimeoutError:
+                best_prefix[0].click(timeout=10000, force=True)
             return best_prefix[1], best_prefix[2]
 
         if best_token_overlap is not None:
-            best_token_overlap[1].click(timeout=10000)
+            _disable_blocking_walkthrough_overlays(page)
+            try:
+                best_token_overlap[1].click(timeout=10000)
+            except PlaywrightTimeoutError:
+                best_token_overlap[1].click(timeout=10000, force=True)
             return best_token_overlap[2], best_token_overlap[3]
 
         page.wait_for_timeout(5)
@@ -491,6 +513,43 @@ def pick_visible_locator_in_frames(page, selectors, timeout_ms=5000):
                 )
 
     raise PlaywrightTimeoutError(f'No visible selector found across frames. Tried: {tried}')
+
+
+def _disable_blocking_walkthrough_overlays(page):
+    """Best-effort neutralization for walkthrough overlays that intercept clicks."""
+    js = """
+        () => {
+            const selectors = [
+                '#chmln-dom',
+                '#chmln-dom *',
+                '[id^="chmln"]',
+                '[id*="chmln-"]',
+                '[class*="chmln"]',
+            ];
+            const touched = new Set();
+            for (const selector of selectors) {
+                for (const el of document.querySelectorAll(selector)) {
+                    if (touched.has(el)) continue;
+                    touched.add(el);
+                    el.style.setProperty('pointer-events', 'none', 'important');
+                    if (
+                        el.id === 'chmln-dom'
+                        || (typeof el.className === 'string' && el.className.includes('chmln-component-margin'))
+                    ) {
+                        el.style.setProperty('display', 'none', 'important');
+                        el.style.setProperty('visibility', 'hidden', 'important');
+                    }
+                }
+            }
+            return touched.size;
+        }
+    """
+
+    for frame in page.frames:
+        try:
+            frame.evaluate(js)
+        except Exception:
+            pass
 
 
 def _extract_project_id_from_payload(payload_obj):

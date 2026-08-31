@@ -64,3 +64,4 @@ gclid/february_audit.csv
 # Tagger PII data files (deploy out-of-band)
 tagger/marketsharp_user-email.json
 tagger/marketsharp_group_mentions.json
+node_modules

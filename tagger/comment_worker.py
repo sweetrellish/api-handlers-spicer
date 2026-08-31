@@ -27,7 +27,6 @@ try:
 except ImportError:  # pragma: no cover
     ZoneInfo = None
 import requests
-from config import Config
 
 _DISPLAY_TZ_NAME = os.getenv("TAGGER_DISPLAY_TZ", "America/New_York")
 try:
@@ -56,9 +55,12 @@ MarketSharpService = _MS_MODULE.MarketSharpService
 # Load environment variables from .env file
 from env_bootstrap import load_repo_env  # noqa: E402
 
-# tagger/.env holds the worker-specific credentials; repo root .env supplements.
-load_repo_env(_TAGGER_DIR, override=False)
+# Load shared defaults first, then let tagger/.env override worker-specific values.
 load_repo_env(_ROOT_DIR, override=False)
+load_repo_env(_TAGGER_DIR, override=True)
+
+# Import Config after env bootstrap so tagger/.env values take precedence.
+from config import Config  # noqa: E402
 
 # Define the CommentWorker class
 class CommentWorker:
@@ -78,9 +80,10 @@ class CommentWorker:
         self.config = Config()
 
         # Set API URLs and keys from the configuration
+        self.webhook_url = (os.getenv("WEBHOOK_URL", "") or "").strip()
         self.api_url = os.getenv("API_URL")
         if not self.api_url:
-            self.api_url = self._derive_api_url_from_webhook_url(os.getenv("WEBHOOK_URL", ""))
+            self.api_url = self._derive_api_url_from_webhook_url(self.webhook_url)
         self.email_api_url = email_api_url_override or os.getenv("EMAIL_API_URL")
         self.email_api_key = email_api_key_override or os.getenv("EMAIL_API_KEY")
         self.email_api_query_token = (
@@ -118,6 +121,35 @@ class CommentWorker:
         self._odata_failure_streak = 0
         self._odata_cooldown_until = 0.0
         self._odata_bad_request_logged = False
+        self._poll_count = 0
+        self._last_reliable_poll_time = time.time()
+        self.notes_filter_overlap_seconds = max(
+            120,
+            int(os.getenv("COMMENT_WORKER_NOTES_FILTER_OVERLAP_SECONDS", "300")),
+        )
+        self.poll_audit_every = max(
+            0,
+            int(os.getenv("COMMENT_WORKER_POLL_AUDIT_EVERY", "30")),
+        )
+        self.poll_audit_stale_seconds = max(
+            self.notes_filter_overlap_seconds,
+            int(os.getenv("COMMENT_WORKER_POLL_AUDIT_STALE_SECONDS", "900")),
+        )
+        self.auto_restart_on_stale_audit = (
+            os.getenv("COMMENT_WORKER_AUTO_RESTART_ON_STALE_AUDIT", "true").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
+        self.stale_audit_consecutive_limit = max(
+            1,
+            int(os.getenv("COMMENT_WORKER_STALE_AUDIT_CONSECUTIVE_LIMIT", "2")),
+        )
+        self._stale_audit_count = 0
+        self._odata_cooldown_start = 0.0
+        self.log_throttle_window_seconds = max(
+            5,
+            int(os.getenv("COMMENT_WORKER_LOG_THROTTLE_SECONDS", "120")),
+        )
+        self._log_throttle_state = {}
         self.state_file = os.getenv(
             "COMMENT_WORKER_STATE_FILE",
             os.path.join(os.path.dirname(__file__), "comment_worker_state.json"),
@@ -150,7 +182,10 @@ class CommentWorker:
             "COMMENT_WORKER_SPLASH_IMAGE_PATH",
             os.path.join(os.path.dirname(__file__), "splash_dim_yellow.png"),
         )
-        self.splash_image_url = os.getenv("COMMENT_WORKER_SPLASH_IMAGE_URL", "").strip()
+        splash_url_raw = (os.getenv("COMMENT_WORKER_SPLASH_IMAGE_URL", "") or "").strip()
+        if splash_url_raw.lower() == "auto":
+            splash_url_raw = ""
+        self.splash_image_url = splash_url_raw or self._derive_splash_url_from_webhook_url(self.webhook_url)
         self.splash_mode = os.getenv("COMMENT_WORKER_SPLASH_MODE", "ascii").strip().lower() or "ascii"
         self.enable_data_uri_splash = (
             os.getenv("COMMENT_WORKER_ENABLE_DATA_URI_SPLASH", "false").strip().lower() == "true"
@@ -220,8 +255,57 @@ class CommentWorker:
         self.seen_comment_ids = set()
         self._contact_entity_cache = {}
         self.state = self.load_state()
+        self._initialize_reliable_poll_cursor()
         self.ms_service = MarketSharpService() if (self.source == "marketsharp_notes" or self.activity_notify_enabled) else None
         self.print_email_config_status()
+
+    @staticmethod
+    def _timestamp_to_epoch(ts_raw):
+        raw = (ts_raw or "").strip()
+        if not raw or raw == "\u2014":
+            return None
+
+        match = re.match(r"^/Date\((\d{10,16})\)/$", raw)
+        if match:
+            try:
+                millis = int(match.group(1))
+                return millis / 1000.0 if millis > 10_000_000_000 else float(millis)
+            except Exception:
+                return None
+
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except Exception:
+            pass
+
+        if re.fullmatch(r"\d{10,16}", raw):
+            try:
+                value = int(raw)
+                return value / 1000.0 if value > 10_000_000_000 else float(value)
+            except Exception:
+                return None
+
+        return None
+
+    def _initialize_reliable_poll_cursor(self):
+        # Only advance the filter cursor from durable state sources so fallback
+        # polls (top_only) do not silently skip a time window.
+        now = time.time()
+        epoch = self.state.get("last_reliable_poll_epoch")
+        if isinstance(epoch, (int, float)) and epoch > 0:
+            self._last_reliable_poll_time = float(epoch)
+            return
+
+        last_seen = self.state.get("last_seen_note_timestamp", "")
+        last_seen_epoch = self._timestamp_to_epoch(last_seen)
+        if last_seen_epoch:
+            self._last_reliable_poll_time = float(last_seen_epoch)
+            return
+
+        self._last_reliable_poll_time = now
 
     @staticmethod
     def _normalize_token(value):
@@ -442,12 +526,21 @@ class CommentWorker:
         has_key = bool(self.email_api_key)
         has_query_token = bool(self.email_api_query_token)
         has_url_token = self._has_token_in_url(self.email_api_url)
+        if has_key:
+            auth_mode = "bearer"
+        elif has_query_token:
+            auth_mode = "query_token"
+        elif has_url_token:
+            auth_mode = "url_token"
+        else:
+            auth_mode = "missing"
         print(
             "Email config status: "
             f"url={'set' if has_url else 'missing'}, "
             f"bearer_key={'set' if has_key else 'missing'}, "
             f"query_token={'set' if has_query_token else 'missing'}, "
-            f"url_has_token={'yes' if has_url_token else 'no'}"
+            f"url_has_token={'yes' if has_url_token else 'no'}, "
+            f"auth_mode={auth_mode}"
         )
         if has_query_token:
             print(f"Email query token: {self._mask_secret(self.email_api_query_token)}")
@@ -455,7 +548,19 @@ class CommentWorker:
             f"Worker runtime: poll_seconds={self.poll_seconds}, "
             f"http_timeout_seconds={self.http_timeout_seconds}"
         )
+        print(
+            "Worker safety: "
+            f"poll_audit_every={self.poll_audit_every}, "
+            f"poll_audit_stale_seconds={self.poll_audit_stale_seconds}, "
+            f"auto_restart_on_stale_audit={'yes' if self.auto_restart_on_stale_audit else 'no'}, "
+            f"stale_audit_consecutive_limit={self.stale_audit_consecutive_limit}"
+        )
         print(f"Worker API base: {self.api_url or '<missing>'}")
+        print(
+            f"Worker splash source: mode={self.splash_mode}, "
+            f"image_url={self.splash_image_url or '<none>'}, "
+            f"data_uri_fallback={'yes' if self.enable_data_uri_splash else 'no'}"
+        )
         print(
             f"Worker source: {self.source}, state_file={self.state_file}, "
             f"bootstrap_process_existing={'yes' if self.bootstrap_process_existing else 'no'}"
@@ -494,6 +599,16 @@ class CommentWorker:
         if not parsed.scheme or not parsed.netloc:
             return ""
         return urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
+
+    @staticmethod
+    def _derive_splash_url_from_webhook_url(webhook_url):
+        """Derive splash image URL from WEBHOOK_URL host."""
+        if not webhook_url:
+            return ""
+        parsed = urlsplit(webhook_url)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        return urlunsplit((parsed.scheme, parsed.netloc, "/assets/email-splash.png", "", ""))
 
     def has_email_api_config(self):
         has_url_token = self._has_token_in_url(self.email_api_url)
@@ -859,7 +974,7 @@ class CommentWorker:
         self._contact_entity_cache[cid] = {}
         return {}
 
-    def _extract_note_contact_profile(self, note, contact_id):
+    def _extract_note_contact_profile(self, note, contact_id, contact_entity=None):
         profile = {
             "account_name": "",
             "company_name": "",
@@ -886,7 +1001,7 @@ class CommentWorker:
         country = self._get_first_value(note, ("country", "Country", "countryCode", "CountryCode"))
 
         # Second pass: enrich from contact entity if needed.
-        entity = self._fetch_contact_entity(note, contact_id)
+        entity = contact_entity if isinstance(contact_entity, dict) else self._fetch_contact_entity(note, contact_id)
         ms_service = self.ms_service
         if isinstance(entity, dict) and entity:
             if not profile["account_name"]:
@@ -932,6 +1047,149 @@ class CommentWorker:
         return profile
 
     @staticmethod
+    def _extract_status_value(payload):
+        if not isinstance(payload, dict):
+            return ""
+
+        preferred_keys = (
+            "jobStatus",
+            "JobStatus",
+            "statusName",
+            "StatusName",
+            "projectStatus",
+            "ProjectStatus",
+            "saleStatus",
+            "SaleStatus",
+            "leadStatus",
+            "LeadStatus",
+            "status",
+            "Status",
+            "state",
+            "State",
+            "stage",
+            "Stage",
+            "stageName",
+            "StageName",
+        )
+        for key in preferred_keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        for key, value in payload.items():
+            key_norm = str(key or "").strip().lower()
+            if isinstance(value, str) and value.strip():
+                if "status" in key_norm or "state" in key_norm or "stage" in key_norm:
+                    return value.strip()
+            if isinstance(value, dict):
+                nested = CommentWorker._extract_status_value(value)
+                if nested:
+                    return nested
+        return ""
+
+    def _fetch_deferred_entity(self, payload, relation_names):
+        if not self.ms_service or not isinstance(payload, dict):
+            return {}
+        if not hasattr(self.ms_service, "_fetch_odata_entity"):
+            return {}
+
+        for relation_name in relation_names:
+            relation = payload.get(relation_name)
+            if not isinstance(relation, dict):
+                continue
+            deferred = relation.get("__deferred") or {}
+            uri = deferred.get("uri") if isinstance(deferred, dict) else ""
+            if not uri:
+                continue
+            entity = self.ms_service._fetch_odata_entity(uri)
+            if isinstance(entity, dict) and entity:
+                return entity
+        return {}
+
+    def _extract_note_job_status(self, note, contact_entity=None):
+        if not isinstance(note, dict):
+            return ""
+
+        # 1) Status directly on note payload.
+        status_value = self._extract_status_value(note)
+        if status_value:
+            return status_value
+
+        # 2) Status on related job-style entities reachable from the note.
+        related_entity = self._fetch_deferred_entity(
+            note,
+            (
+                "Job",
+                "Project",
+                "Sale",
+                "Opportunity",
+                "Proposal",
+                "Contract",
+            ),
+        )
+        status_value = self._extract_status_value(related_entity)
+        if status_value:
+            return status_value
+
+        # 3) Status on related entities reachable from the contact.
+        contact_payload = contact_entity if isinstance(contact_entity, dict) else {}
+        if not contact_payload:
+            contact_payload = self._fetch_contact_entity(note, self._extract_note_contact_id(note))
+
+        status_value = self._extract_status_value(contact_payload)
+        if status_value:
+            return status_value
+
+        contact_related = self._fetch_deferred_entity(
+            contact_payload,
+            (
+                "Job",
+                "Jobs",
+                "Project",
+                "Projects",
+                "Sale",
+                "Sales",
+            ),
+        )
+        status_value = self._extract_status_value(contact_related)
+        if status_value:
+            return status_value
+
+        results = contact_related.get("results") if isinstance(contact_related, dict) else None
+        if isinstance(results, list):
+            for item in results:
+                status_value = self._extract_status_value(item)
+                if status_value:
+                    return status_value
+        return ""
+
+    def fetch_note_by_id(self, note_id):
+        if not self.ms_service:
+            return {}
+        if not hasattr(self.ms_service, "_fetch_odata_entity"):
+            return {}
+
+        note_token = str(note_id or "").strip()
+        if not note_token:
+            return {}
+
+        odata = (getattr(self.ms_service, "odata_url", "") or "").rstrip("/")
+        if not odata:
+            return {}
+
+        uri_candidates = []
+        if self._is_guid_like(note_token):
+            uri_candidates.append(f"{odata}/Notes(guid'{note_token}')")
+        uri_candidates.append(f"{odata}/Notes('{note_token}')")
+        uri_candidates.append(f"{odata}/Notes({note_token})")
+
+        for uri in uri_candidates:
+            entity = self.ms_service._fetch_odata_entity(uri)
+            if isinstance(entity, dict) and entity:
+                return entity
+        return {}
+
+    @staticmethod
     def _normalize_odata_payload(payload):
         if isinstance(payload, list):
             return payload
@@ -949,25 +1207,97 @@ class CommentWorker:
                 return data["results"]
         return []
 
-    @staticmethod
-    def _marketsharp_notes_query_variants():
+    def _marketsharp_notes_query_variants(self):
+        # filter_date uses a 2-min overlap so boundary notes are never skipped.
+        # Keep the fetch size at 50 to match MarketSharp's cap and the catch-up script.
+        since = datetime.fromtimestamp(
+            max(0.0, self._last_reliable_poll_time - self.notes_filter_overlap_seconds), timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S")
         return [
             ("orderby_top", {"$orderby": "dateTime desc", "$top": "50"}),
+            ("filter_date", {"$filter": f"dateTime ge datetime'{since}'", "$top": "50"}),
             ("top_only", {"$top": "50"}),
         ]
+
+    def _print_throttled(self, key, message):
+        now = time.time()
+        state = self._log_throttle_state.get(key)
+        window = self.log_throttle_window_seconds
+        if state and (now - state["window_start"]) < window:
+            state["suppressed"] += 1
+            return
+
+        if state and state["suppressed"] > 0:
+            print(
+                f"{key}: suppressed {state['suppressed']} similar messages in "
+                f"last {int(now - state['window_start'])}s"
+            )
+        print(message)
+        self._log_throttle_state[key] = {
+            "window_start": now,
+            "suppressed": 0,
+        }
+
+    def _maybe_log_poll_audit(self, *, last_variant, notes_count, had_error):
+        if self.poll_audit_every <= 0:
+            return
+        if self._poll_count % self.poll_audit_every != 0:
+            return
+
+        lag_s = max(0, int(time.time() - self._last_reliable_poll_time))
+        cursor_iso = datetime.fromtimestamp(
+            self._last_reliable_poll_time, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        stale = lag_s >= self.poll_audit_stale_seconds
+        state = "stale" if stale else "ok"
+        err = "yes" if had_error else "no"
+        print(
+            "Poll audit: "
+            f"poll={self._poll_count}, state={state}, cursor_utc={cursor_iso}, "
+            f"cursor_lag_s={lag_s}, last_variant={last_variant}, notes={notes_count}, had_error={err}"
+        )
+
+        if stale:
+            self._stale_audit_count += 1
+        else:
+            self._stale_audit_count = 0
+
+        if (
+            self.auto_restart_on_stale_audit
+            and self._stale_audit_count >= self.stale_audit_consecutive_limit
+        ):
+            print(
+                "Poll audit stale threshold reached; exiting worker for systemd restart "
+                f"(stale_count={self._stale_audit_count}, limit={self.stale_audit_consecutive_limit})."
+            )
+            raise RuntimeError("Poll audit stale threshold reached")
 
     def fetch_marketsharp_notes(self):
         if not self.ms_service:
             return []
+        self._poll_count += 1
 
         now = time.time()
         if self._odata_cooldown_until > now:
+            if self._odata_cooldown_start == 0.0:
+                self._odata_cooldown_start = now
             remaining = int(self._odata_cooldown_until - now)
             print(
                 "Skipping MarketSharp notes poll during cooldown "
                 f"({remaining}s remaining after repeated non-transient failures)."
             )
+            self._maybe_log_poll_audit(last_variant="cooldown", notes_count=0, had_error=True)
             return []
+
+        if self._odata_cooldown_start > 0.0:
+            gap_s = int(now - self._odata_cooldown_start)
+            gap_h = max(1, (gap_s + 3599) // 3600)
+            print(
+                f"MarketSharp OData cooldown cleared after ~{gap_s}s gap. "
+                f"If notes with @mentions may have been missed, run: "
+                f"python scripts/recover_missed_mentions.py --hours {gap_h} --apply"
+            )
+            self._odata_cooldown_start = 0.0
 
         attempts = 1 + self.odata_retry_max
         url = f"{self.ms_service.odata_url}/Notes"
@@ -997,9 +1327,10 @@ class CommentWorker:
                                 f"{body_preview}"
                             )
                         if variant_name != query_variants[-1][0]:
-                            print(
+                            self._print_throttled(
+                                "odata_variant_400",
                                 "MarketSharp Notes query variant failed; trying fallback "
-                                f"variant={variant_name}, status=400"
+                                f"variant={variant_name}, status=400",
                             )
                             continue
 
@@ -1013,10 +1344,43 @@ class CommentWorker:
                             "MarketSharp Notes fallback query succeeded "
                             f"variant={variant_name}, count={len(notes)}"
                         )
+                    if variant_name != "top_only":
+                        self._last_reliable_poll_time = time.time()
+                        self.state["last_reliable_poll_epoch"] = int(self._last_reliable_poll_time)
+                        self.save_state()
+                    self._maybe_log_poll_audit(
+                        last_variant=variant_name,
+                        notes_count=len(notes),
+                        had_error=False,
+                    )
                     return notes
             except requests.HTTPError as e:
                 last_error = e
                 status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 400:
+                    if attempt < attempts:
+                        wait_s = min(
+                            self.odata_retry_max_seconds,
+                            (self.odata_retry_base_seconds * (2 ** (attempt - 1))) + random.uniform(0.0, 0.15),
+                        )
+                        print(
+                            "MarketSharp Notes returned HTTP 400 across variants; "
+                            f"attempt={attempt}/{attempts}; retrying in {wait_s:.2f}s"
+                        )
+                        time.sleep(wait_s)
+                        continue
+                    # MarketSharp intermittently returns IIS 400 pages for valid OData
+                    # patterns. Do not enter cooldown/failure-streak on 400-only cycles.
+                    self._print_throttled(
+                        "odata_fetch_error",
+                        "MarketSharp Notes returned HTTP 400 across all variants; skipping cooldown for this cycle.",
+                    )
+                    self._maybe_log_poll_audit(
+                        last_variant="http_400",
+                        notes_count=0,
+                        had_error=True,
+                    )
+                    return []
                 if status in self._TRANSIENT_HTTP_STATUS and attempt < attempts:
                     wait_s = min(
                         self.odata_retry_max_seconds,
@@ -1028,8 +1392,10 @@ class CommentWorker:
                     )
                     time.sleep(wait_s)
                     continue
-                # Non-transient HTTP failures (for example 400) should fail fast.
+                # Non-transient HTTP failures (other than 400) should fail fast.
                 if self.odata_non_transient_cooldown_seconds > 0:
+                    if self._odata_cooldown_start == 0.0:
+                        self._odata_cooldown_start = time.time()
                     self._odata_cooldown_until = max(
                         self._odata_cooldown_until,
                         time.time() + self.odata_non_transient_cooldown_seconds,
@@ -1059,6 +1425,8 @@ class CommentWorker:
             self.odata_cooldown_seconds > 0
             and self._odata_failure_streak >= self.odata_failure_streak_limit
         ):
+            if self._odata_cooldown_start == 0.0:
+                self._odata_cooldown_start = time.time()
             self._odata_cooldown_until = time.time() + self.odata_cooldown_seconds
             print(
                 "MarketSharp notes poll entering cooldown after repeated failures: "
@@ -1066,7 +1434,11 @@ class CommentWorker:
                 f"cooldown={self.odata_cooldown_seconds}s"
             )
 
-        print(f"Error fetching MarketSharp notes: {last_error}")
+        self._print_throttled(
+            "odata_fetch_error",
+            f"Error fetching MarketSharp notes: {last_error}",
+        )
+        self._maybe_log_poll_audit(last_variant="error", notes_count=0, had_error=True)
         return []
 
     def build_comment_from_note(self, note):
@@ -1086,13 +1458,16 @@ class CommentWorker:
             f"https://www1.marketsharpm.com/ContactDetail.aspx?contactOid={contact_id}&contactType=3"
             if contact_id else None
         )
-        profile = self._extract_note_contact_profile(note, contact_id)
+        contact_entity = self._fetch_contact_entity(note, contact_id)
+        profile = self._extract_note_contact_profile(note, contact_id, contact_entity=contact_entity)
+        job_status = self._extract_note_job_status(note, contact_entity=contact_entity)
         job_info = {
             "contact_id": contact_id or "\u2014",
             "contact_url": contact_url,
             "note_id": note_id,
             "timestamp": timestamp or "\u2014",
             "source": "MarketSharp Notes",
+            "job_status": job_status,
             "account_name": profile.get("account_name") or "",
             "company_name": profile.get("company_name") or "",
             "address_line": profile.get("address_line") or "",
@@ -1514,221 +1889,557 @@ class CommentWorker:
                 job_info=job_info,
                 source=source,
             )
+       
+# Refactored build_html_body method for CommentWorker class
+# Enhanced with sleek, technical design aesthetic
+# Replace the existing build_html_body method (lines 1570-1783) with this version
+
 
     def build_html_body(self, comment, job_info=None, recipient_name=None):
-        """Build a branded HTML mention-notification email."""
+        """Build a sleek, technical HTML mention-notification email."""
+        import html
+        import re
+
         escaped = html.escape(comment or "")
 
         def _highlight(match):
             mention = html.escape(match.group(0))
             return (
-                f'<span style="background-color:#dbeafe;color:#1d4ed8;font-weight:700;'
-                f'padding:1px 5px;border-radius:3px;font-family:monospace;">{mention}</span>'
+                f'<span style="background:linear-gradient(135deg,rgba(199,140,42,0.2) 0%,rgba(199,140,42,0.1) 100%);'
+                f'color:#d4a041;font-weight:700;padding:2px 8px;border-radius:4px;'
+                f'font-family:monospace;border:1px solid rgba(199,140,42,0.3);">{mention}</span>'
             )
 
         highlighted = re.sub(r"(?<!\w)@[A-Za-z0-9]+\b", _highlight, escaped)
 
         # Format timestamp for display.
-        ts_display = "\u2014"
+        ts_display = "—"
         if isinstance(job_info, dict):
             ts_raw = (job_info.get("timestamp") or "").strip()
             if ts_raw:
                 ts_display = CommentWorker._format_timestamp_display(ts_raw)
 
-        # Build job details table block.
+        # Build job details block with Figma-style card while preserving
+        # existing data fields from the legacy template.
         job_block = ""
         if isinstance(job_info, dict):
-            contact_id = html.escape(str(job_info.get("contact_id") or "\u2014"))
+            contact_id = html.escape(str(job_info.get("contact_id") or "—" or "\u2014"))
             contact_url = (job_info.get("contact_url") or "").strip()
             account_name = html.escape(str(job_info.get("account_name") or "").strip())
             company_name = html.escape(str(job_info.get("company_name") or "").strip())
             address_line = html.escape(str(job_info.get("address_line") or "").strip())
             city_state_postal = html.escape(str(job_info.get("city_state_postal") or "").strip())
             country = html.escape(str(job_info.get("country") or "").strip())
-            note_id = html.escape(str(job_info.get("note_id") or "\u2014"))
-            source_label = html.escape(str(job_info.get("source") or "MarketSharp"))
+            note_id = html.escape(str(job_info.get("note_id") or "—" or "\u2014"))
+            status_label = html.escape(str(job_info.get("job_status") or "\u2014"))
             ts_cell = html.escape(ts_display)
+            location_parts = [part for part in [address_line, city_state_postal, country] if part]
+            location_label = html.escape(", ".join(location_parts)) if location_parts else "—"
+            title_label = account_name or company_name or (contact_id if contact_id != "—" else "Customer Account")
+            subtitle_label = f"NOTE-{note_id}" if note_id and note_id != "—" else "NOTE-UNKNOWN"
             contact_cell = (
                 f'<a href="{html.escape(contact_url)}" '
-                f'style="color:#0ea5e9;text-decoration:none;font-family:monospace;">'
+                f'style="color:#c78c2a;text-decoration:none;font-weight:600;font-family:monospace;'
+                f'border-bottom:1px solid rgba(199,140,42,0.3);">'
                 f'{account_name or contact_id}</a>'
                 if contact_url else (account_name or contact_id)
             )
 
-            def _row(label, value_html, first=False):
-                sep = "" if first else "border-top:1px solid #e2e8f0;"
+            def _row(label, value_html):
                 return (
-                    f'<tr>'
-                    f'<td style="padding:8px 16px;width:38%;font-size:12px;color:#64748b;'
-                    f'font-family:monospace;{sep}">{label}</td>'
-                    f'<td style="padding:8px 16px;font-size:12px;color:#1e293b;'
-                    f'font-family:monospace;{sep}">{value_html}</td>'
+                    '<tr>'
+                    f'<td style="padding:10px 20px;font-size:11px;color:#64748b;'
+                    f'font-family:monospace;font-weight:600;width:32%;vertical-align:top;">{label}:</td>'
+                    f'<td style="padding:10px 20px;font-size:13px;color:#cbd5e1;'
+                    f'font-weight:500;vertical-align:top;">{value_html}</td>'
                     f'</tr>'
                 )
 
-            row_items = []
-            if account_name:
-                row_items.append(("Account", contact_cell))
-            else:
-                row_items.append(("Contact", contact_cell))
-            if company_name:
-                row_items.append(("Company", company_name))
-            if address_line:
-                row_items.append(("Address", address_line))
-            if city_state_postal:
-                row_items.append(("Location", city_state_postal))
-            if country:
-                row_items.append(("Country", country))
-            if account_name:
-                row_items.append(("Contact ID", contact_id))
-            row_items.extend([
-                ("Note ID", note_id),
-                ("Timestamp", ts_cell),
-                ("Source", source_label),
-            ])
-
-            rows = ""
-            for idx, (label, value) in enumerate(row_items):
-                rows += _row(label, value, first=(idx == 0))
-            job_block = (
-                '<table width="100%" cellpadding="0" cellspacing="0" '
-                'style="background-color:#f8f4ea;border-radius:6px;margin-bottom:24px;">'
-                '<tr><td colspan="2" style="padding:8px 16px;background-color:#e2e8f0;'
-                'border-radius:6px 6px 0 0;">'
-                '<span style="font-size:11px;font-weight:700;color:#6c4a12;letter-spacing:1px;'
-                'font-family:monospace;text-transform:uppercase;">&#128196; Job Details</span>'
-                '</td></tr>'
-                f'{rows}'
-                '</table>'
+            status_badge = (
+                '<span style="display:inline-block;background-color:rgba(34,197,94,0.15);'
+                'color:#86efac;font-size:11px;font-weight:700;padding:4px 10px;border-radius:4px;'
+                'font-family:monospace;border:1px solid rgba(34,197,94,0.3);">'
+                f'&#9679; {status_label}</span>'
             )
 
-        greeting = f"Hi {html.escape(recipient_name)}," if recipient_name else "Hi,"
+            row_items = [
+                ("ACCOUNT", contact_cell),
+                ("COMPANY", company_name or "—"),
+                ("LOCATION", location_label),
+                ("CONTACT ID", contact_id),
+                ("STATUS", status_badge),
+                ("TIMESTAMP", ts_cell),
+            ]
+
+            rows = ""
+            for label, value in row_items:
+                rows += _row(label, value)
+
+            job_block = (
+                '<div style="background:linear-gradient(135deg,rgba(199,140,42,0.08) 0%,rgba(199,140,42,0.03) 100%);'
+                'border:1px solid rgba(199,140,42,0.2);border-radius:8px;padding:24px;margin-bottom:32px;">'
+                '<div style="font-size:9px;color:#c78c2a;font-family:monospace;letter-spacing:1.5px;'
+                'margin-bottom:16px;text-transform:uppercase;font-weight:700;">&#9881; Job Details</div>'
+                f'<h3 style="margin:0 0 4px;font-size:18px;color:#f8fafc;font-weight:700;">{title_label}</h3>'
+                f'<div style="font-size:12px;color:#64748b;font-family:monospace;margin-bottom:16px;">{subtitle_label}</div>'
+                '<table width="100%" cellpadding="8" cellspacing="0">'
+                '<tbody>'
+                f'{rows}'
+                '</tbody>'
+                '</table>'
+                '</div>'
+            )
+
+        greeting = f"Hello {html.escape(recipient_name)}," if recipient_name else "Hello,"
         ts_esc = html.escape(ts_display)
-        has_ts = bool(ts_display and ts_display != "\u2014")
+        has_ts = bool(ts_display and ts_display != "—")
         meta_line = (
-            'MarketSharp Tagger Client &nbsp;&#183;&nbsp; Spicer API'
+            'Marketsharp Tagger Client &nbsp;&183; &nbsp;$#183;&nbsp; Spicer API'
             + (f' &nbsp;&#183;&nbsp; {ts_esc}' if has_ts else '')
         )
+
+        # Enhanced metadata line with more technical formatting
+        note_id_short = str(job_info.get("note_id", "N/A"))[:8] if isinstance(job_info, dict) else "N/A"
+        status_short = str(job_info.get("job_status") or "\u2014")[:24] if isinstance(job_info, dict) else "\u2014"
+        meta_line = (
+            f'STATUS: {html.escape(status_short)} &nbsp;&#183;&nbsp; '
+            f'NOTE: #{html.escape(note_id_short)} &nbsp;&#183;&nbsp; '
+            + (f'TIMESTAMP: {ts_esc}' if has_ts else 'TIMESTAMP: N/A')
+        )
+
+        # Modernized ASCII splash with cleaner, more technical aesthetic
         splash_ascii = (
-            " \n"
+            "\n" 
             + html.escape(
                 """
-  / ===_|      @                        ////////  ////////  ////////  ////////////////////
- | (___   ___  _  ___   ____     ___    ///  ///  ///  ///    ///     //////  ///  ///////
-  \\___ \\ / _ \\| |/ __\\ / __ \\|^^//^\\\\   ///  ///  ///  ///    ///     ////////////////////
-  ____) | |_| | | (___|  ^__/|  /       ////////  ////////    ///     ///  /////////  ////
- |_____/|  __/\\__,___/ \\____/|__|       ///  ///  ///         ///     //// //////// //////
-        | |                             ///  ///  ///         ///     /////________///////
-        |_|                             ///  ///  ///       ///////   ////////////////////
+  █████████             ███                                █████████   ███████████  █████
+ ███░░░░░███           ░░░                                ███░░░░░███ ░░███░░░░░███░░███ 
+░███    ░░░  ████████  ████   ██████   ██████  ████████  ░███    ░███  ░███    ░███ ░███ 
+░░█████████ ░░███░░███░░███  ███░░███ ███░░███░░███░░███ ░███████████  ░██████████  ░███ 
+ ░░░░░░░░███ ░███ ░███ ░███ ░███ ░░░ ░███████  ░███ ░░░  ░███░░░░░███  ░███░░░░░░   ░███ 
+ ███    ░███ ░███ ░███ ░███ ░███  ███░███░░░   ░███      ░███    ░███  ░███         ░███ 
+░░█████████  ░███████  █████░░██████ ░░██████  █████     █████   █████ █████        █████
+ ░░░░░░░░░   ░███░░░  ░░░░░  ░░░░░░   ░░░░░░  ░░░░░     ░░░░░   ░░░░░ ░░░░░        ░░░░░ 
+             ░███                                                                        
+             █████                                                                       
+            ░░░░░                                                                        
 """.strip("\n")
             )
         )
+
         splash_image_src = self.splash_image_url
         if not splash_image_src and self.enable_data_uri_splash:
             splash_image_src = self._get_splash_data_uri()
 
         use_image_splash = self.splash_mode == "image" and bool(splash_image_src)
+        use_responsive_splash = (self.splash_mode == "ascii") and bool(splash_image_src)
 
         if use_image_splash:
             splash_src_escaped = html.escape(splash_image_src, quote=True)
             splash_block = (
-                '<table width="100%" cellpadding="0" cellspacing="0" '
-                'style="margin:0 0 28px;border-radius:12px;overflow:hidden;background:#081326;'
-                'box-shadow:inset 0 0 0 1px #11213a;">'
-                '<tr><td style="padding:0;background:#081326;">'
+                '<div style="margin:0 0 40px;border-radius:12px;overflow:hidden;min-height:200px;'
+                'width:100%;max-width:680px;'
+                'background:#0a0f1e;border:1px solid rgba(199,140,42,0.2);'
+                'box-shadow:0 4px 16px rgba(0,0,0,0.3);">'
                 f'<img src="{splash_src_escaped}" alt="Spicer MTS splash" '
-                'style="display:block;width:100%;height:auto;border:0;outline:none;text-decoration:none;"/>'
-                '</td></tr>'
+                'style="display:block;width:100%;height:auto;max-width:100%;border:0;"/>'
+                '</div>'
+            )
+        elif use_responsive_splash:
+            splash_src_escaped = html.escape(splash_image_src, quote=True)
+            splash_block = (
+                '<div class="splash-ascii" style="margin:0 0 32px;border-radius:12px;overflow:hidden;'
+                'background:#0a0f1e;border:1px solid rgba(199,140,42,0.2);'
+                'box-shadow:0 8px 24px rgba(0,0,0,0.4);">'
+                '<div style="padding:24px 24px 16px;background:#0a0f1e;">'
+                f'<pre style="display:block;margin:0;color:#88942a;font-size:10px;line-height:1.35;'
+                'font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;white-space:pre;'
+                'letter-spacing:0.5px;-webkit-text-size-adjust:none;text-size-adjust:none;'
+                'mso-line-height-rule:exactly;">'
+                f'{splash_ascii}</pre>'
+                '</div>'
+                '<div style="padding:0 24px 16px;background:#0a0f1e;">'
+                '<table width="100%" cellpadding="0" cellspacing="0">'
+                '<tr>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:left;'
+                'letter-spacing:0.5px;">Spicer Bros. Admin Console</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:right;">'
+                'written by Ryan Ellis</td>'
+                '</tr>'
                 '</table>'
+                '</div>'
+                '<div style="height:2px;background:linear-gradient(90deg,'
+                'rgba(136,148,42,0.3) 0%,#88942a 50%,rgba(136,148,42,0.3) 100%);"></div>'
+                '</div>'
+                '<div class="splash-mobile" style="display:none;max-height:0;overflow:hidden;'
+                'margin:0 0 32px;border-radius:12px;overflow:hidden;background:#0a0f1e;'
+                'border:1px solid rgba(199,140,42,0.2);box-shadow:0 8px 24px rgba(0,0,0,0.4);">'
+                f'<img src="{splash_src_escaped}" alt="Spicer MTS splash" '
+                'style="display:block;width:100%;height:auto;max-width:100%;border:0;"/>'
+                '<div style="padding:10px 14px 12px;background:#0a0f1e;">'
+                '<table width="100%" cellpadding="0" cellspacing="0">'
+                '<tr>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:left;'
+                'letter-spacing:0.5px;">Spicer Bros. Admin Console</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:right;">'
+                'written by Ryan Ellis</td>'
+                '</tr>'
+                '</table>'
+                '</div>'
+                '<div style="height:2px;background:linear-gradient(90deg,'
+                'rgba(136,148,42,0.3) 0%,#88942a 50%,rgba(136,148,42,0.3) 100%);"></div>'
+                '</div>'
             )
         else:
             splash_block = (
-                '<table width="100%" cellpadding="0" cellspacing="0" '
-                'style="margin:0 0 28px;border-radius:12px;overflow:visible;background:#081326;'
-                'box-shadow:inset 0 0 0 1px #11213a;">'
-                '<tr><td style="height:8px;line-height:8px;font-size:8px;background:#081326;">&nbsp;</td></tr>'
-                '<tr><td style="padding:18px 18px 8px;background:#081326;">'
-                f'<pre style="display:block;margin:0;padding-top:0;color:#88942a;font-size:11px;line-height:1.28;'
+                '<div style="margin:0 0 32px;border-radius:12px;overflow:hidden;'
+                'background:#0a0f1e;border:1px solid rgba(199,140,42,0.2);'
+                'box-shadow:0 8px 24px rgba(0,0,0,0.4);">'
+                '<div style="padding:24px 24px 16px;background:#0a0f1e;">'
+                f'<pre style="display:block;margin:0;color:#88942a;font-size:10px;line-height:1.35;'
                 'font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;white-space:pre;'
-                'letter-spacing:0.15px;">'
-                f'{splash_ascii}'
-                '</pre>'
-                '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">'
+                'letter-spacing:0.5px;-webkit-text-size-adjust:none;text-size-adjust:none;'
+                'mso-line-height-rule:exactly;">'
+                f'{splash_ascii}</pre>'
+                '</div>'
+                '<div style="padding:0 24px 16px;background:#0a0f1e;">'
+                '<table width="100%" cellpadding="0" cellspacing="0">'
                 '<tr>'
-                '<td style="color:#88942a;font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;'
-                'font-size:11px;text-align:left;">Spicer Bros. Admin Console</td>'
-                '<td style="color:#88942a;font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;'
-                'font-size:11px;text-align:right;padding-right:58px;">written by Ryan Ellis</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:left;'
+                'letter-spacing:0.5px;">Spicer Bros. Admin Console</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:right;">'
+                'written by Ryan Ellis</td>'
                 '</tr>'
                 '</table>'
-                '</td></tr>'
-                '<tr><td style="height:2px;background:linear-gradient(90deg,#66731f 0%,#88942a 50%,#66731f 100%);"></td></tr>'
-                '</table>'
+                '</div>'
+                '<div style="height:2px;background:linear-gradient(90deg,'
+                'rgba(136,148,42,0.3) 0%,#88942a 50%,rgba(136,148,42,0.3) 100%);"></div>'
+                '</div>'
             )
+
         return (
             '<!DOCTYPE html><html lang="en">'
             '<head><meta charset="UTF-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+            '<meta name="x-apple-disable-message-reformatting">'
+            '<style type="text/css">'
+            'body{-webkit-text-size-adjust:100%;text-size-adjust:100%;}'
+            '.splash-mobile{display:none;max-height:0;overflow:hidden;}'
+            '@media only screen and (max-width:680px){'
+            '.email-shell{padding:24px 14px !important;}'
+            '.email-card{padding:24px 18px !important;}'
+            '.splash-ascii{display:none !important;max-height:0 !important;overflow:hidden !important;mso-hide:all !important;}'
+            '.splash-mobile{display:block !important;max-height:none !important;overflow:visible !important;}'
+            '.splash-mobile img{display:block !important;width:100% !important;height:auto !important;}'
+            '}'
+            '</style>'
             '<title>Mention Alert</title></head>'
-            '<body style="margin:0;padding:0;background-color:#eceff3;'
-            "font-family:'Segoe UI',Arial,sans-serif;\">"
-            # header bar
+            '<body style="margin:0;padding:0;background-color:#0a0f1e;'
+            "font-family:'Inter','Segoe UI',sans-serif;\">"
+
+            # Enhanced header with gradient and better spacing
             '<table width="100%" cellpadding="0" cellspacing="0" '
-            'style="background:linear-gradient(90deg,#0d1324 0%,#131f3f 52%,#0f1730 100%);">'
-            '<tr><td style="padding:16px 32px 8px;">'
+            'style="background:linear-gradient(135deg,#0a0f1e 0%,#15233d 50%,#0d1629 100%);'
+            'border-bottom:1px solid rgba(199,140,42,0.2);">'
+            '<tr><td style="padding:24px 40px 12px;">'
             '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
-            '<td><span style="color:#f1f5f9;font-size:18px;font-weight:800;letter-spacing:3px;">'
-            'SPICER BROS.</span>'
-            '<span style="color:#c78c2a;font-size:11px;margin-left:4px;letter-spacing:1px;">'
-            'CONSTRUCTION</span></td>'
-            '<td align="right" valign="top" style="padding-top:2px;">'
-            '<span style="background-color:#c78c2a;color:#2a1a05;font-size:10px;font-weight:700;'
-            'padding:4px 10px;border-radius:4px;letter-spacing:1.5px;font-family:monospace;">'
-            '&#9889; TAG ALERT</span></td>'
+            '<td><span style="color:#f8fafc;font-size:20px;font-weight:900;letter-spacing:4px;'
+            'text-shadow:0 2px 8px rgba(199,140,42,0.3);">SPICER BROS.</span>'
+            '<span style="color:#d4a041;font-size:10px;letter-spacing:2px;font-weight:600;'
+            'text-transform:uppercase;margin-left:8px;">Construction</span></td>'
+            '<td align="right" valign="middle">'
+            # Keep the alert badge single-line so Gmail mobile does not break it awkwardly.
+            '<span style="display:inline-block;white-space:nowrap;background:linear-gradient(135deg,#c78c2a 0%,#d4a041 100%);'
+            'color:#0a0f1e;font-size:9px;font-weight:800;line-height:1;padding:6px 12px;border-radius:6px;'
+            'letter-spacing:1.5px;font-family:monospace;box-shadow:0 4px 12px rgba(199,140,42,0.4);'
+            'border:1px solid rgba(255,255,255,0.2);vertical-align:middle;min-width:max-content;' 
+            'text-align:center;">&#9889; TAG ALERT</span></td>'
             '</tr></table></td></tr>'
-            '<tr><td style="padding:0 32px 10px;">'
-            '<span style="color:#d4a041;font-size:11px;font-family:monospace;font-weight:600;">'
-            f'{meta_line}</span></td></tr>'
-            '<tr><td style="height:3px;background-color:#c78c2a;"></td></tr>'
+            '<tr><td style="padding:0 40px 16px;">'
+            '<div style="background-color:rgba(199,140,42,0.08);border:1px solid rgba(199,140,42,0.2);'
+            'border-radius:6px;padding:10px 14px;">'
+            '<span style="color:#94a3b8;font-size:10px;letter-spacing:0.5px;font-family:monospace;">'
+            f'{meta_line}</span></div></td></tr>'
+            '<tr><td style="height:2px;background:linear-gradient(90deg,'
+            'transparent 0%,#c78c2a 50%,transparent 100%);"></td></tr>'
             '</table>'
-            # content
+
+            # Enhanced content area with dark theme
             '<table width="100%" cellpadding="0" cellspacing="0" '
-            'style="background-color:#eceff3;">'
-            '<tr><td style="padding:32px 16px;">'
+            'style="background-color:#0a0f1e;">'
+            '<tr><td class="email-shell" style="padding:40px 20px;">'
             '<table align="center" cellpadding="0" cellspacing="0" '
-            'style="max-width:860px;width:100%;">'
-            '<tr><td style="background-color:#ffffff;border-radius:8px;padding:32px;'
-            'box-shadow:0 1px 4px rgba(0,0,0,0.08);">'
+            'style="max-width:680px;width:100%;">'
+            '<tr><td class="email-card" style="background-color:#0f1729;border-radius:12px;padding:40px;'
+            'border:1px solid rgba(148,163,184,0.1);box-shadow:0 8px 32px rgba(0,0,0,0.4);">'
+
+            # Splash
             f'{splash_block}'
-            '<p style="margin:0 0 4px;font-size:11px;color:#9f9374;letter-spacing:1.5px;'
-            'font-family:monospace;text-transform:uppercase;">MENTION NOTIFICATION</p>'
-            '<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;font-weight:700;">'
-            'New Mention Activity</h2>'
-            f'<p style="margin:0 0 28px;font-size:14px;color:#64748b;">'
+
+            # Status badge
+            '<div style="display:inline-block;background-color:rgba(199,140,42,0.15);'
+            'border:1px solid rgba(199,140,42,0.3);border-radius:6px;padding:6px 12px;margin-bottom:20px;">'
+            '<span style="font-size:10px;color:#d4a041;letter-spacing:1.5px;'
+            'font-family:monospace;font-weight:700;">&#128204; MENTION NOTIFICATION</span></div>'
+
+            # Title
+            '<h2 style="margin:0 0 12px;font-size:26px;color:#f8fafc;font-weight:800;'
+            'letter-spacing:-0.5px;line-height:1.3;">New Mention Activity</h2>'
+
+            # Subtitle
+            f'<p style="margin:0 0 32px;font-size:15px;color:#94a3b8;line-height:1.6;">'
             f'{greeting} A new mention was detected in a MarketSharp note.</p>'
-            '<div style="background-color:#f8fafc;border-left:4px solid #c78c2a;'
-            'border-radius:0 6px 6px 0;padding:16px 20px;margin-bottom:24px;">'
-            '<p style="margin:0 0 8px;font-size:10px;color:#94a3b8;font-family:monospace;'
-            'letter-spacing:1px;text-transform:uppercase;">Note Content</p>'
-            f'<p style="margin:0;font-size:15px;line-height:1.75;color:#1e293b;">{highlighted}</p>'
+
+            # Note content box with enhanced styling
+            '<div style="background-color:rgba(15,23,41,0.6);border:1px solid rgba(199,140,42,0.3);'
+            'border-left:4px solid #c78c2a;border-radius:8px;padding:24px;margin-bottom:32px;'
+            'box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">'
+            '<div style="font-size:9px;color:#64748b;font-family:monospace;letter-spacing:1.5px;'
+            'margin-bottom:12px;text-transform:uppercase;font-weight:600;">&#9654; Note Content</div>'
+            f'<p style="margin:0;font-size:15px;line-height:1.8;color:#e2e8f0;">{highlighted}</p>'
             '</div>'
+
+            # Job info block
             f'{job_block}'
-            '<p style="margin:0;font-size:12px;color:#94a3b8;text-align:center;line-height:1.6;">'
+
+            # Divider
+            '<div style="height:1px;background:linear-gradient(90deg,transparent 0%,'
+            'rgba(148,163,184,0.2) 50%,transparent 100%);margin:32px 0;"></div>'
+
+            # Footer text
+            '<p style="margin:0;font-size:12px;color:#64748b;text-align:center;line-height:1.8;">'
             'You received this because you were @mentioned in a note.<br>'
-            '<a href="mailto:ryan@spicerbros.com" '
-            'style="color:#c78c2a;text-decoration:none;">Contact Admin</a>'
-            '</p>'
+            '<a href="mailto:ryan@spicerbros.com" style="color:#c78c2a;text-decoration:none;'
+            'font-weight:600;border-bottom:1px solid rgba(199,140,42,0.3);">Contact Admin</a></p>'
+
             '</td></tr></table></td></tr></table>'
-            # footer bar
+
+            # Enhanced footer
             '<table width="100%" cellpadding="0" cellspacing="0" '
-            'style="background:linear-gradient(90deg,#0d1324 0%,#131f3f 52%,#0f1730 100%);">'
-            '<tr><td style="padding:14px 32px;text-align:center;">'
-            '<span style="color:#64748b;font-size:10px;font-family:monospace;">'
-            'Spicer Ops Tagger &nbsp;&#183;&nbsp; Automated System'
-            ' &nbsp;&#183;&nbsp; Do not reply to this email</span>'
-            '</td></tr></table>'
+            'style="background:linear-gradient(135deg,#0a0f1e 0%,#15233d 50%,#0d1629 100%);'
+            'border-top:1px solid rgba(199,140,42,0.2);">'
+            '<tr><td style="padding:20px 40px;text-align:center;">'
+            '<span style="color:#475569;font-size:10px;font-family:monospace;letter-spacing:0.5px;">'
+            'Spicer Ops Tagger &nbsp;&#183;&nbsp; Automated System &nbsp;&#183;&nbsp; '
+            'Do not reply to this email</span></td></tr></table>'
+
             '</body></html>'
         )
+
+#  def build_html_body(self, comment, job_info=None, recipient_name=None):
+# Build a branded HTML mention-notification email.
+#         escaped = html.escape(comment or "")
+
+#         def _highlight(match):
+#             mention = html.escape(match.group(0))
+#             return (
+#                 f'<span style="background-color:#dbeafe;color:#1d4ed8;font-weight:700;'
+#                 f'padding:1px 5px;border-radius:3px;font-family:monospace;">{mention}</span>'
+#             )
+
+#         highlighted = re.sub(r"(?<!\w)@[A-Za-z0-9]+\b", _highlight, escaped)
+
+#         # Format timestamp for display.
+#         ts_display = "\u2014"
+#         if isinstance(job_info, dict):
+#             ts_raw = (job_info.get("timestamp") or "").strip()
+#             if ts_raw:
+#                 ts_display = CommentWorker._format_timestamp_display(ts_raw)
+
+#         # Build job details table block.
+#         job_block = ""
+#         if isinstance(job_info, dict):
+#             contact_id = html.escape(str(job_info.get("contact_id") or "\u2014"))
+#             contact_url = (job_info.get("contact_url") or "").strip()
+#             account_name = html.escape(str(job_info.get("account_name") or "").strip())
+#             company_name = html.escape(str(job_info.get("company_name") or "").strip())
+#             address_line = html.escape(str(job_info.get("address_line") or "").strip())
+#             city_state_postal = html.escape(str(job_info.get("city_state_postal") or "").strip())
+#             country = html.escape(str(job_info.get("country") or "").strip())
+#             note_id = html.escape(str(job_info.get("note_id") or "\u2014"))
+#             source_label = html.escape(str(job_info.get("source") or "MarketSharp"))
+#             ts_cell = html.escape(ts_display)
+#             contact_cell = (
+#                 f'<a href="{html.escape(contact_url)}" '
+#                 f'style="color:#0ea5e9;text-decoration:none;font-family:monospace;">'
+#                 f'{account_name or contact_id}</a>'
+#                 if contact_url else (account_name or contact_id)
+#             )
+
+#             def _row(label, value_html, first=False):
+#                 sep = "" if first else "border-top:1px solid #e2e8f0;"
+#                 return (
+#                     f'<tr>'
+#                     f'<td style="padding:8px 16px;width:38%;font-size:12px;color:#64748b;'
+#                     f'font-family:monospace;{sep}">{label}</td>'
+#                     f'<td style="padding:8px 16px;font-size:12px;color:#1e293b;'
+#                     f'font-family:monospace;{sep}">{value_html}</td>'
+#                     f'</tr>'
+#                 )
+
+#             row_items = []
+#             if account_name:
+#                 row_items.append(("Account", contact_cell))
+#             else:
+#                 row_items.append(("Contact", contact_cell))
+#             if company_name:
+#                 row_items.append(("Company", company_name))
+#             if address_line:
+#                 row_items.append(("Address", address_line))
+#             if city_state_postal:
+#                 row_items.append(("Location", city_state_postal))
+#             if country:
+#                 row_items.append(("Country", country))
+#             if account_name:
+#                 row_items.append(("Contact ID", contact_id))
+#             row_items.extend([
+#                 ("Note ID", note_id),
+#                 ("Timestamp", ts_cell),
+#                 ("Source", source_label),
+#             ])
+
+#             rows = ""
+#             for idx, (label, value) in enumerate(row_items):
+#                 rows += _row(label, value, first=(idx == 0))
+#             job_block = (
+#                 '<table width="100%" cellpadding="0" cellspacing="0" '
+#                 'style="background-color:#f8f4ea;border-radius:6px;margin-bottom:24px;">'
+#                 '<tr><td colspan="2" style="padding:8px 16px;background-color:#e2e8f0;'
+#                 'border-radius:6px 6px 0 0;">'
+#                 '<span style="font-size:11px;font-weight:700;color:#6c4a12;letter-spacing:1px;'
+#                 'font-family:monospace;text-transform:uppercase;">&#128196; Job Details</span>'
+#                 '</td></tr>'
+#                 f'{rows}'
+#                 '</table>'
+#             )
+
+#         greeting = f"Hi {html.escape(recipient_name)}," if recipient_name else "Hi,"
+#         ts_esc = html.escape(ts_display)
+#         has_ts = bool(ts_display and ts_display != "\u2014")
+#         meta_line = (
+#             'MarketSharp Tagger Client &nbsp;&#183;&nbsp; Spicer API'
+#             + (f' &nbsp;&#183;&nbsp; {ts_esc}' if has_ts else '')
+#         )
+#         splash_ascii = (
+#             " \n"
+#             + html.escape(
+#                 """
+#   / ===_|      @                        ////////  ////////  ////////  ////////////////////
+#  | (___   ___  _  ___   ____     ___    ///  ///  ///  ///    ///     //////  ///  ///////
+#   \\___ \\ / _ \\| |/ __\\ / __ \\|^^//^\\\\   ///  ///  ///  ///    ///     ////////////////////
+#   ____) | |_| | | (___|  ^__/|  /       ////////  ////////    ///     ///  /////////  ////
+#  |_____/|  __/\\__,___/ \\____/|__|       ///  ///  ///         ///     //// //////// //////
+#         | |                             ///  ///  ///         ///     /////________///////
+#         |_|                             ///  ///  ///       ///////   ////////////////////
+# """.strip("\n")
+#             )
+#         )
+#         splash_image_src = self.splash_image_url
+#         if not splash_image_src and self.enable_data_uri_splash:
+#             splash_image_src = self._get_splash_data_uri()
+
+#         use_image_splash = self.splash_mode == "image" and bool(splash_image_src)
+
+#         if use_image_splash:
+#             splash_src_escaped = html.escape(splash_image_src, quote=True)
+#             splash_block = (
+#                 '<table width="100%" cellpadding="0" cellspacing="0" '
+#                 'style="margin:0 0 28px;border-radius:12px;overflow:hidden;background:#081326;'
+#                 'box-shadow:inset 0 0 0 1px #11213a;">'
+#                 '<tr><td style="padding:0;background:#081326;">'
+#                 f'<img src="{splash_src_escaped}" alt="Spicer MTS splash" '
+#                 'style="display:block;width:100%;height:auto;border:0;outline:none;text-decoration:none;"/>'
+#                 '</td></tr>'
+#                 '</table>'
+#             )
+#         else:
+#             splash_block = (
+#                 '<table width="100%" cellpadding="0" cellspacing="0" '
+#                 'style="margin:0 0 28px;border-radius:12px;overflow:visible;background:#081326;'
+#                 'box-shadow:inset 0 0 0 1px #11213a;">'
+#                 '<tr><td style="height:8px;line-height:8px;font-size:8px;background:#081326;">&nbsp;</td></tr>'
+#                 '<tr><td style="padding:18px 18px 8px;background:#081326;">'
+#                 f'<pre style="display:block;margin:0;padding-top:0;color:#88942a;font-size:11px;line-height:1.28;'
+#                 'font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;white-space:pre;'
+#                 'letter-spacing:0.15px;">'
+#                 f'{splash_ascii}'
+#                 '</pre>'
+#                 '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">'
+#                 '<tr>'
+#                 '<td style="color:#88942a;font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;'
+#                 'font-size:11px;text-align:left;">Spicer Bros. Admin Console</td>'
+#                 '<td style="color:#88942a;font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;'
+#                 'font-size:11px;text-align:right;padding-right:58px;">written by Ryan Ellis</td>'
+#                 '</tr>'
+#                 '</table>'
+#                 '</td></tr>'
+#                 '<tr><td style="height:2px;background:linear-gradient(90deg,#66731f 0%,#88942a 50%,#66731f 100%);"></td></tr>'
+#                 '</table>'
+#             )
+#         return (
+#             '<!DOCTYPE html><html lang="en">'
+#             '<head><meta charset="UTF-8">'
+#             '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+#             '<title>Mention Alert</title></head>'
+#             '<body style="margin:0;padding:0;background-color:#eceff3;'
+#             "font-family:'Segoe UI',Arial,sans-serif;\">"
+#             # header bar
+#             '<table width="100%" cellpadding="0" cellspacing="0" '
+#             'style="background:linear-gradient(90deg,#0d1324 0%,#131f3f 52%,#0f1730 100%);">'
+#             '<tr><td style="padding:16px 32px 8px;">'
+#             '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+#             '<td><span style="color:#f1f5f9;font-size:18px;font-weight:800;letter-spacing:3px;">'
+#             'SPICER BROS.</span>'
+#             '<span style="color:#c78c2a;font-size:11px;margin-left:4px;letter-spacing:1px;">'
+#             'CONSTRUCTION</span></td>'
+#             '<td align="right" valign="top" style="padding-top:2px;">'
+#             '<span style="background-color:#c78c2a;color:#2a1a05;font-size:10px;font-weight:700;'
+#             'padding:4px 10px;border-radius:4px;letter-spacing:1.5px;font-family:monospace;">'
+#             'TAG ALERT</span></td>'
+#             '</tr></table></td></tr>'
+#             '<tr><td style="padding:0 32px 10px;">'
+#             '<span style="color:#d4a041;font-size:11px;font-family:monospace;font-weight:600;">'
+#             f'{meta_line}</span></td></tr>'
+#             '<tr><td style="height:3px;background-color:#c78c2a;"></td></tr>'
+#             '</table>'
+#             # content
+#             '<table width="100%" cellpadding="0" cellspacing="0" '
+#             'style="background-color:#eceff3;">'
+#             '<tr><td style="padding:32px 16px;">'
+#             '<table align="center" cellpadding="0" cellspacing="0" '
+#             'style="max-width:860px;width:100%;">'
+#             '<tr><td style="background-color:#ffffff;border-radius:8px;padding:32px;'
+#             'box-shadow:0 1px 4px rgba(0,0,0,0.08);">'
+#             f'{splash_block}'
+#             '<p style="margin:0 0 4px;font-size:11px;color:#9f9374;letter-spacing:1.5px;'
+#             'font-family:monospace;text-transform:uppercase;">MENTION NOTIFICATION</p>'
+#             '<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;font-weight:700;">'
+#             'New Mention Activity</h2>'
+#             f'<p style="margin:0 0 28px;font-size:14px;color:#64748b;">'
+#             f'{greeting} A new mention was detected in a MarketSharp note.</p>'
+#             '<div style="background-color:#f8fafc;border-left:4px solid #c78c2a;'
+#             'border-radius:0 6px 6px 0;padding:16px 20px;margin-bottom:24px;">'
+#             '<p style="margin:0 0 8px;font-size:10px;color:#94a3b8;font-family:monospace;'
+#             'letter-spacing:1px;text-transform:uppercase;">Note Content</p>'
+#             f'<p style="margin:0;font-size:15px;line-height:1.75;color:#1e293b;">{highlighted}</p>'
+#             '</div>'
+#             f'{job_block}'
+#             '<p style="margin:0;font-size:12px;color:#94a3b8;text-align:center;line-height:1.6;">'
+#             'You received this because you were @mentioned in a note.<br>'
+#             '<a href="mailto:ryan@spicerbros.com" '
+#             'style="color:#c78c2a;text-decoration:none;">Contact Admin</a>'
+#             '</p>'
+#             '</td></tr></table></td></tr></table>'
+#             # footer bar
+#             '<table width="100%" cellpadding="0" cellspacing="0" '
+#             'style="background:linear-gradient(90deg,#0d1324 0%,#131f3f 52%,#0f1730 100%);">'
+#             '<tr><td style="padding:14px 32px;text-align:center;">'
+#             '<span style="color:#64748b;font-size:10px;font-family:monospace;">'
+#             'Spicer Ops Tagger &nbsp;&#183;&nbsp; Automated System'
+#             ' &nbsp;&#183;&nbsp; Do not reply to this email</span>'
+#             '</td></tr></table>'
+#             '</body></html>'
+#         )
 
     def send_email_notification(self, username, recipient_email, job_info, comment):
         """Send a mention notification email to the named recipient."""
@@ -1744,7 +2455,7 @@ class CommentWorker:
         country_plain = ""
         note_id_plain = "\u2014"
         ts_plain = "\u2014"
-        source_plain = "MarketSharp Notes"
+        status_plain = "\u2014"
         if isinstance(job_info, dict):
             contact_id_plain = str(job_info.get("contact_id") or "\u2014")
             account_name_plain = str(job_info.get("account_name") or "").strip()
@@ -1753,7 +2464,7 @@ class CommentWorker:
             city_state_postal_plain = str(job_info.get("city_state_postal") or "").strip()
             country_plain = str(job_info.get("country") or "").strip()
             note_id_plain = str(job_info.get("note_id") or "\u2014")
-            source_plain = str(job_info.get("source") or source_plain)
+            status_plain = str(job_info.get("job_status") or "\u2014")
             ts_raw = (job_info.get("timestamp") or "").strip()
             if ts_raw:
                 ts_plain = self._format_timestamp_display(ts_raw)
@@ -1772,7 +2483,7 @@ class CommentWorker:
         plain_lines.append(f"  Contact ID : {contact_id_plain}")
         plain_lines.append(f"  Note ID    : {note_id_plain}")
         plain_lines.append(f"  Timestamp  : {ts_plain}")
-        plain_lines.append(f"  Source     : {source_plain}")
+        plain_lines.append(f"  Status     : {status_plain}")
         details_text = "\n".join(plain_lines)
 
         text_body = (

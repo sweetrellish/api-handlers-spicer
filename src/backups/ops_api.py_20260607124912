@@ -1,0 +1,747 @@
+"""JSON API endpoints that expose spicer_ops_menu operations for the GUI app."""
+
+from __future__ import annotations
+
+import csv
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from flask import Blueprint, jsonify, request
+
+from pending_queue import PendingCommentQueue
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = ROOT / "scripts"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import spicer_ops_menu as ops  # noqa: E402
+
+ops_bp = Blueprint("ops_api", __name__, url_prefix="/ops")
+
+
+def _ok(message: str, data: Any | None = None, status: int = 200):
+    return jsonify({"success": True, "message": message, "data": data}), status
+
+
+def _err(message: str, status: int = 400):
+    return jsonify({"success": False, "message": message}), status
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    return str(value)
+
+
+def _run_python_script(args: list[str], timeout: int = 180) -> dict[str, Any]:
+    env = os.environ.copy()
+    pythonpath_parts = [str(ROOT), str(ROOT / "src"), str(SCRIPTS_DIR)]
+    existing = env.get("PYTHONPATH", "")
+    if existing:
+        pythonpath_parts.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
+    venv_python = ROOT / ".venv" / "bin" / "python3"
+    python_bin = str(venv_python) if venv_python.exists() else sys.executable
+
+    proc = subprocess.run(
+        [python_bin, *args],
+        cwd=str(ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return {
+        "exitCode": proc.returncode,
+        "stdout": (proc.stdout or "").strip(),
+        "stderr": (proc.stderr or "").strip(),
+        "command": [python_bin, *args],
+    }
+
+
+def _get_stats() -> dict[str, int]:
+    counts = ops.queue_counts()
+    pending = int(counts.get("pending", 0))
+    processing = int(counts.get("processing", 0))
+    unmatched = int(counts.get("unmatched", 0))
+    true_fail = int(counts.get("true_fail", 0))
+    posted = int(counts.get("posted", 0))
+    return {
+        "pending": pending,
+        "processing": processing,
+        "unmatched": unmatched,
+        "trueFail": true_fail,
+        "posted": posted,
+        "active": pending + processing,
+    }
+
+
+@ops_bp.get("/queue/stats")
+def queue_stats():
+    return _ok("Queue stats loaded.", _get_stats())
+
+
+@ops_bp.post("/execute")
+def execute_action():
+    body = request.get_json(silent=True) or {}
+    category_id = str(body.get("categoryId", "")).strip()
+    action_id = str(body.get("actionId", "")).strip()
+    params = body.get("params") if isinstance(body.get("params"), dict) else {}
+
+    if not category_id or not action_id:
+        return _err("categoryId and actionId are required.")
+
+    try:
+        message, data = _dispatch_action(category_id, action_id, params)
+        return _ok(message, _json_safe(data))
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    except subprocess.TimeoutExpired:
+        return _err("Operation timed out.", 504)
+    except Exception as exc:
+        return _err(f"Operation failed: {exc}", 500)
+
+
+def _dispatch_action(category_id: str, action_id: str, params: dict[str, Any]):
+    key = f"{category_id}.{action_id}"
+
+    if key == "1.1":
+        return _action_send_test_webhook(params)
+    if key == "1.2":
+        run = _run_python_script([str(SCRIPTS_DIR / "recover_missed_comments.py"), "--dry-run"], timeout=600)
+        message = "Missed comment catch-up dry-run completed." if run["exitCode"] == 0 else "Missed comment catch-up finished with warnings."
+        return message, run
+    if key == "1.3":
+        return _action_verify_cc_webhook()
+
+    if key == "2.1":
+        return "Queue status loaded.", {"stats": _get_stats(), "countsByStatus": ops.queue_counts()}
+    if key == "2.2":
+        return _action_browse_queue(params)
+    if key == "2.3":
+        updated = PendingCommentQueue(ops.DB_PATH).requeue_all_unmatched()
+        return f"Requeued {updated} unmatched item(s).", {"updated": updated, "stats": _get_stats()}
+    if key == "2.4":
+        return _action_true_fails(params)
+    if key == "2.5":
+        return _action_repush_posted(params)
+    if key == "2.6":
+        return _action_contact_mapping(params)
+    if key == "2.7":
+        return _action_duplicates(params)
+    if key == "2.8":
+        return _action_recover_mentions(params)
+
+    if key == "3.1":
+        return _action_gclid_report("month")
+    if key == "3.2":
+        return _action_gclid_report("last_month")
+    if key == "3.3":
+        return _action_gclid_report("custom", params)
+    if key == "3.4":
+        return _action_gclid_report("preview", params)
+    if key == "3.5":
+        return _action_show_latest_csv()
+    if key == "3.6":
+        return _action_gclid_audit(params)
+    if key == "3.7":
+        return _action_backend_roster_reconcile()
+    if key == "3.8":
+        return _action_export_backend_roster()
+    if key == "3.9":
+        return _action_show_latest_csv()
+
+    if key == "4.1":
+        return _action_db_paths_status()
+    if key == "4.2":
+        return _action_backup_db_files()
+    if key == "4.3":
+        return _action_db_integrity()
+    if key == "4.4":
+        return _action_consolidate_db(params)
+    if key == "4.5":
+        return _action_audit_log(params)
+    if key == "4.6":
+        _, data = _action_db_paths_status()
+        predeploy_msg, predeploy_data = _action_predeploy_check()
+        data["predeploy"] = {"message": predeploy_msg, **predeploy_data}
+        return "DB status summary loaded.", data
+
+    if key == "5.1":
+        return _action_restart_services(ops.WORKER_SERVICES)
+    if key == "5.2":
+        return _action_restart_services(ops.ALL_SERVICES)
+    if key == "5.3":
+        return _action_worker_journal()
+    if key == "5.4":
+        return _action_local_health()
+    if key == "5.5":
+        return _action_env_summary()
+    if key == "5.6":
+        run = _run_python_script([str(SCRIPTS_DIR / "health_check.py")], timeout=120)
+        message = "Mention worker ops check completed." if run["exitCode"] == 0 else "Mention worker ops check completed with warnings."
+        return message, run
+    if key == "5.7":
+        return _action_predeploy_check()
+
+    raise ValueError(f"Unsupported action: {key}")
+
+
+def _action_send_test_webhook(params: dict[str, Any]):
+    if not ops._HAS_REQUESTS:
+        raise ValueError("Python package 'requests' is required on the backend.")
+
+    customer_name = str(params.get("customerName") or "Test Customer")
+    comment_text = str(params.get("commentText") or "GUI test comment")
+
+    payload = json.loads(json.dumps(ops._SAMPLE_PAYLOAD))
+    payload["data"]["content"] = comment_text
+    payload["data"]["id"] = f"gui-test-{int(time.time())}"
+    payload["data"]["subject"]["name"] = customer_name
+    payload["token"] = os.getenv("COMPANYCAM_WEBHOOK_SECRET", "")
+
+    response = ops._requests.post(ops.WEBHOOK_LOCAL_URL, json=payload, timeout=10)
+    message = "Test webhook sent." if response.status_code == 200 else "Test webhook returned non-200 status."
+    data = {
+        "statusCode": response.status_code,
+        "responseText": response.text[:1200],
+        "url": ops.WEBHOOK_LOCAL_URL,
+    }
+    return message, data
+
+
+def _action_verify_cc_webhook():
+    if not ops._HAS_REQUESTS:
+        raise ValueError("Python package 'requests' is required on the backend.")
+
+    token = os.getenv("COMPANYCAM_WEBHOOK_TOKEN", "")
+    if not token:
+        raise ValueError("COMPANYCAM_WEBHOOK_TOKEN is not set in the backend environment.")
+
+    response = ops._requests.get(
+        "https://api.companycam.com/v2/webhooks",
+        headers={"accept": "application/json", "authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if response.status_code != 200:
+        return "CompanyCam API returned non-200 status.", {
+            "statusCode": response.status_code,
+            "body": response.text[:1200],
+        }
+
+    body = response.json()
+    hooks = body if isinstance(body, list) else body.get("webhooks", [])
+    return "Webhook registration loaded.", {"statusCode": 200, "hooks": hooks}
+
+
+def _action_true_fails(params: dict[str, Any]):
+    mode = str(params.get("mode") or "list")
+    queue = PendingCommentQueue(ops.DB_PATH)
+
+    if mode == "list":
+        return "True-fail items loaded.", {
+            "items": ops.fetch_queue(["true_fail"], limit=int(params.get("limit", 100))),
+            "stats": _get_stats(),
+        }
+    if mode == "requeue_all":
+        updated = queue.requeue_true_fail()
+        return f"Requeued {updated} true_fail item(s).", {"updated": updated, "stats": _get_stats()}
+    if mode == "requeue_ids":
+        ids = params.get("ids")
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("Provide params.ids as a non-empty list.")
+        cleaned = [int(item) for item in ids]
+        updated = queue.requeue_true_fail(queue_ids=cleaned)
+        return f"Requeued {updated} selected true_fail item(s).", {"updated": updated, "ids": cleaned, "stats": _get_stats()}
+    if mode == "rename_requeue":
+        item_id = int(params.get("id", 0))
+        new_name = str(params.get("newName") or "").strip()
+        if item_id <= 0 or not new_name:
+            raise ValueError("Provide params.id and params.newName.")
+        ops.queue_update_name(item_id, new_name)
+        return f"Renamed and requeued item #{item_id}.", {"id": item_id, "newName": new_name, "stats": _get_stats()}
+
+    raise ValueError(f"Unsupported true-fail mode: {mode}")
+
+
+def _action_browse_queue(params: dict[str, Any]):
+    mode = str(params.get("mode") or "list")
+    statuses = params.get("statuses")
+    if not isinstance(statuses, list) or not statuses:
+        statuses = ["pending", "processing", "unmatched", "true_fail"]
+    limit = int(params.get("limit", 100))
+
+    if mode == "list":
+        items = ops.fetch_queue(statuses=statuses, limit=limit)
+        return "Queue items loaded.", {"items": items, "stats": _get_stats()}
+
+    item_id = int(params.get("id", 0))
+    if item_id <= 0:
+        raise ValueError("Provide params.id for queue item actions.")
+
+    if mode == "requeue":
+        ops.queue_set_status(item_id, "pending", last_error="Manual requeue")
+        return f"Queue item #{item_id} requeued.", {"stats": _get_stats()}
+
+    if mode == "rename":
+        new_name = str(params.get("newName") or "").strip()
+        if not new_name:
+            raise ValueError("Provide params.newName for rename action.")
+        ops.queue_update_name(item_id, new_name)
+        return f"Queue item #{item_id} renamed and requeued.", {"stats": _get_stats()}
+
+    if mode == "delete":
+        with ops.db_connect() as conn:
+            conn.execute("DELETE FROM pending_comments WHERE id=?", (item_id,))
+            conn.commit()
+        return f"Queue item #{item_id} deleted.", {"stats": _get_stats()}
+
+    raise ValueError(f"Unsupported queue browse mode: {mode}")
+
+
+def _action_repush_posted(params: dict[str, Any]):
+    mode = str(params.get("mode") or "all")
+    now = int(time.time())
+
+    if mode == "list":
+        return "Posted queue items loaded.", {"items": ops.fetch_queue(["posted"], limit=int(params.get("limit", 100))), "stats": _get_stats()}
+
+    if mode == "all":
+        rows = ops.fetch_queue(["posted"], limit=100000)
+        ids = [int(row["id"]) for row in rows]
+    elif mode == "ids":
+        raw_ids = params.get("ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("Provide params.ids as a non-empty list.")
+        ids = [int(item) for item in raw_ids]
+    else:
+        raise ValueError(f"Unsupported repush mode: {mode}")
+
+    with ops.db_connect() as conn:
+        for item_id in ids:
+            conn.execute(
+                "UPDATE pending_comments SET status='pending', retry_count=0, last_error='Manual re-push', updated_at=? WHERE id=?",
+                (now, item_id),
+            )
+        conn.commit()
+
+    return f"Requeued {len(ids)} posted item(s).", {"ids": ids, "stats": _get_stats()}
+
+
+def _action_contact_mapping(params: dict[str, Any]):
+    mode = str(params.get("mode") or "list")
+    mapping = ops.load_mapping()
+
+    if mode == "list":
+        return "Mappings loaded.", {"mappingFile": ops.MAPPING_FILE, "entries": mapping}
+    if mode == "upsert":
+        key = str(params.get("key") or "").strip()
+        url = str(params.get("url") or "").strip()
+        if not key or not url:
+            raise ValueError("Provide params.key and params.url for mapping upsert.")
+        mapping[key] = url
+        ops.save_mapping(mapping)
+        return "Mapping saved.", {"key": key, "url": url, "count": len(mapping)}
+    if mode == "delete":
+        key = str(params.get("key") or "").strip()
+        if not key:
+            raise ValueError("Provide params.key for mapping delete.")
+        existed = key in mapping
+        if existed:
+            del mapping[key]
+            ops.save_mapping(mapping)
+        return "Mapping delete processed.", {"deleted": existed, "key": key, "count": len(mapping)}
+    if mode == "unresolved":
+        items = ops.fetch_queue(["pending", "processing", "unmatched"], limit=int(params.get("limit", 200)))
+        unresolved = []
+        for item in items:
+            try:
+                payload = json.loads(item.get("payload_json") or "{}")
+                proj_id = (payload.get("data") or {}).get("project_id") or (payload.get("data") or {}).get("location_id")
+            except Exception:
+                proj_id = None
+            proj_key = f"project:{proj_id}" if proj_id else None
+            name_key = f"name:{(item.get('customer_name') or '').lower()}"
+            if not (proj_key and proj_key in mapping) and name_key not in mapping:
+                unresolved.append({"item": item, "projectId": proj_id})
+        return "Unresolved items loaded.", {"count": len(unresolved), "rows": unresolved}
+
+    raise ValueError(f"Unsupported mapping mode: {mode}")
+
+
+def _action_duplicates(params: dict[str, Any]):
+    with ops.db_connect() as conn:
+        dup_event = conn.execute(
+            "SELECT event_id, COUNT(*) AS n FROM pending_comments GROUP BY event_id HAVING n > 1"
+        ).fetchall()
+        dup_text = conn.execute(
+            "SELECT comment_text, COUNT(*) AS n FROM pending_comments GROUP BY comment_text HAVING n > 1"
+        ).fetchall()
+
+    mode = str(params.get("mode") or "scan")
+    if mode == "scan":
+        return "Duplicate scan completed.", {
+            "duplicateEventIds": [dict(row) for row in dup_event],
+            "duplicateCommentTexts": [dict(row) for row in dup_text],
+        }
+
+    deleted = 0
+    with ops.db_connect() as conn:
+        if mode == "cleanup_event_id":
+            for row in dup_event:
+                max_id = conn.execute(
+                    "SELECT MAX(id) FROM pending_comments WHERE event_id=?",
+                    (row["event_id"],),
+                ).fetchone()[0]
+                result = conn.execute(
+                    "DELETE FROM pending_comments WHERE event_id=? AND id != ?",
+                    (row["event_id"], max_id),
+                )
+                deleted += int(result.rowcount or 0)
+        elif mode == "cleanup_comment_text":
+            for row in dup_text:
+                max_id = conn.execute(
+                    "SELECT MAX(id) FROM pending_comments WHERE comment_text=?",
+                    (row["comment_text"],),
+                ).fetchone()[0]
+                result = conn.execute(
+                    "DELETE FROM pending_comments WHERE comment_text=? AND id != ?",
+                    (row["comment_text"], max_id),
+                )
+                deleted += int(result.rowcount or 0)
+        else:
+            raise ValueError(f"Unsupported duplicate mode: {mode}")
+        conn.commit()
+
+    return f"Duplicate cleanup completed. Deleted {deleted} row(s).", {"deleted": deleted, "stats": _get_stats()}
+
+
+def _action_recover_mentions(params: dict[str, Any]):
+    hours = float(params.get("hours", 24.0))
+    apply = bool(params.get("apply", False))
+    cmd = [str(SCRIPTS_DIR / "recover_missed_mentions.py"), "--hours", str(hours)]
+    if apply:
+        cmd.append("--apply")
+    run = _run_python_script(cmd, timeout=900)
+    message = "Tagger mention recovery completed." if run["exitCode"] == 0 else "Tagger mention recovery finished with warnings."
+    return message, run
+
+
+def _month_range(which: str):
+    now = time.localtime()
+    if which == "month":
+        return f"{now.tm_year:04d}-{now.tm_mon:02d}-01"
+    year = now.tm_year
+    month = now.tm_mon - 1
+    if month == 0:
+        month = 12
+        year -= 1
+    return f"{year:04d}-{month:02d}-01"
+
+
+def _action_gclid_report(mode: str, params: dict[str, Any] | None = None):
+    params = params or {}
+    script = str(ROOT / "gclid-ms.py")
+
+    if mode == "month":
+        since = _month_range("month")
+        preview = False
+    elif mode == "last_month":
+        since = _month_range("last_month")
+        preview = False
+    elif mode == "custom":
+        since = str(params.get("since") or "").strip()
+        if not since:
+            raise ValueError("Provide params.since as YYYY-MM-DD.")
+        preview = False
+    elif mode == "preview":
+        since = str(params.get("since") or _month_range("month")).strip()
+        preview = True
+    else:
+        raise ValueError(f"Unsupported report mode: {mode}")
+
+    args = [script, "report", "--since", since]
+    if preview:
+        args.append("--preview")
+
+    run = _run_python_script(args, timeout=1200)
+    message = "GCLID report completed." if run["exitCode"] == 0 else "GCLID report completed with warnings."
+    return message, run
+
+
+def _action_show_latest_csv():
+    data_dir = ROOT / "data"
+    files = sorted(data_dir.glob("*.csv"), key=lambda item: item.stat().st_mtime, reverse=True)
+    top = files[:20]
+    rows = []
+    for file in top:
+        rows.append(
+            {
+                "name": file.name,
+                "path": str(file),
+                "size": file.stat().st_size,
+                "updatedAt": int(file.stat().st_mtime),
+            }
+        )
+    return "Recent CSV files loaded.", {"files": rows}
+
+
+def _action_gclid_audit(params: dict[str, Any]):
+    since = str(params.get("since") or _month_range("month"))
+    run = _run_python_script([str(ROOT / "gclid-ms.py"), "report", "--since", since, "--preview"], timeout=1200)
+    message = "GCLID audit preview completed." if run["exitCode"] == 0 else "GCLID audit preview completed with warnings."
+    return message, run
+
+
+def _action_backend_roster_reconcile():
+    run = _run_python_script([str(ROOT / "gclid-ms.py"), "report", "--since", _month_range("month"), "--preview"], timeout=1200)
+    message = "Backend roster reconciliation preview completed." if run["exitCode"] == 0 else "Backend roster reconciliation finished with warnings."
+    return message, run
+
+
+def _action_export_backend_roster():
+    run = _run_python_script([str(ROOT / "gclid-ms.py"), "report", "--since", _month_range("month")], timeout=1200)
+    message = "Backend roster export completed." if run["exitCode"] == 0 else "Backend roster export finished with warnings."
+    return message, run
+
+
+def _action_db_paths_status():
+    queue_groups = []
+    for title, candidates in [
+        ("queue", ops.QUEUE_DB_CANDIDATES),
+        ("idempotency", ops.IDEMPOTENCY_DB_CANDIDATES),
+        ("audit", ops.AUDIT_DB_CANDIDATES),
+    ]:
+        entries = []
+        for path in ops._discover_existing_db_paths(candidates):
+            entry = {
+                "path": path,
+                "size": os.path.getsize(path),
+                "integrity": ops._sqlite_integrity(path),
+                "tables": ops._sqlite_table_names(path),
+            }
+            counts = ops._queue_counts_for_path(path)
+            if counts is not None:
+                entry["pendingCounts"] = counts
+            entries.append(entry)
+        queue_groups.append({"group": title, "entries": entries})
+
+    return "DB paths and status loaded.", {
+        "dbPath": ops.DB_PATH,
+        "auditDb": ops.AUDIT_DB,
+        "canonicalQueueDb": ops.CANONICAL_QUEUE_DB,
+        "canonicalAuditDb": ops.CANONICAL_AUDIT_DB,
+        "canonicalIdempotencyDb": ops.CANONICAL_IDEMPOTENCY_DB,
+        "groups": queue_groups,
+    }
+
+
+def _action_backup_db_files():
+    targets = []
+    for path in [ops.DB_PATH, ops.AUDIT_DB] + ops.IDEMPOTENCY_DB_CANDIDATES:
+        absolute = os.path.abspath(path)
+        if os.path.exists(absolute) and absolute not in targets:
+            targets.append(absolute)
+
+    backed_up = []
+    for path in targets:
+        dest = ops._backup_file(path)
+        backed_up.append({"source": path, "backup": str(dest)})
+
+    return f"Backed up {len(backed_up)} DB file(s).", {"files": backed_up}
+
+
+def _action_db_integrity():
+    targets = []
+    for path in ops.QUEUE_DB_CANDIDATES + ops.IDEMPOTENCY_DB_CANDIDATES + ops.AUDIT_DB_CANDIDATES:
+        absolute = os.path.abspath(path)
+        if os.path.exists(absolute) and absolute not in targets:
+            targets.append(absolute)
+
+    rows = []
+    for path in targets:
+        rows.append({"path": path, "integrity": ops._sqlite_integrity(path)})
+    return "SQLite integrity check completed.", {"results": rows}
+
+
+def _action_consolidate_db(params: dict[str, Any]):
+    require_confirm = bool(params.get("confirm", False))
+    existing = ops._discover_existing_db_paths(ops.QUEUE_DB_CANDIDATES)
+
+    if not require_confirm:
+        return "Preview only. Re-run with confirm=true to consolidate.", {
+            "destination": ops.CANONICAL_QUEUE_DB,
+            "sources": existing,
+        }
+
+    backups = []
+    for path in existing:
+        if os.path.abspath(path) == os.path.abspath(ops.CANONICAL_QUEUE_DB):
+            continue
+        backups.append({"source": path, "backup": str(ops._backup_file(path))})
+
+    inserted = ops._consolidate_queue_dbs(ops.CANONICAL_QUEUE_DB, existing)
+    return "Queue DB consolidation completed.", {
+        "destination": ops.CANONICAL_QUEUE_DB,
+        "inserted": inserted,
+        "backups": backups,
+        "counts": ops._queue_counts_for_path(ops.CANONICAL_QUEUE_DB),
+    }
+
+
+def _action_audit_log(params: dict[str, Any]):
+    mode = str(params.get("mode") or "recent")
+    ops.ensure_audit_table()
+
+    if mode == "recent":
+        with ops.db_connect(ops.AUDIT_DB) as conn:
+            rows = conn.execute(
+                "SELECT * FROM posted_comments_audit ORDER BY COALESCE(posted_at, 0) DESC, id DESC LIMIT ?",
+                (int(params.get("limit", 50)),),
+            ).fetchall()
+        return "Recent audit rows loaded.", {"rows": [dict(row) for row in rows]}
+
+    if mode == "search":
+        term = str(params.get("term") or "").strip()
+        if not term:
+            raise ValueError("Provide params.term for audit search.")
+        with ops.db_connect(ops.AUDIT_DB) as conn:
+            rows = conn.execute(
+                "SELECT * FROM posted_comments_audit WHERE customer_name LIKE ? ORDER BY COALESCE(posted_at, 0) DESC, id DESC LIMIT 50",
+                (f"%{term}%",),
+            ).fetchall()
+        return "Audit search completed.", {"rows": [dict(row) for row in rows], "term": term}
+
+    if mode == "crosscheck":
+        with ops.db_connect(ops.AUDIT_DB) as conn:
+            audit_ids = {row[0] for row in conn.execute("SELECT event_id FROM posted_comments_audit").fetchall()}
+        posted = ops.fetch_queue(["posted"], limit=5000)
+        missing = [item for item in posted if item.get("event_id") not in audit_ids]
+        return "Audit cross-check completed.", {"missing": missing, "missingCount": len(missing)}
+
+    if mode == "export":
+        out_path = ROOT / f"audit_export_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        with ops.db_connect(ops.AUDIT_DB) as conn:
+            rows = conn.execute(
+                "SELECT * FROM posted_comments_audit ORDER BY COALESCE(posted_at, 0) ASC, id ASC"
+            ).fetchall()
+        if not rows:
+            return "Audit export skipped because audit DB is empty.", {"rows": 0}
+        with open(out_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(rows[0].keys())
+            writer.writerows(rows)
+        return "Audit log exported.", {"rows": len(rows), "path": str(out_path)}
+
+    raise ValueError(f"Unsupported audit mode: {mode}")
+
+
+def _action_restart_services(services: list[str]):
+    rows = []
+    for service in services:
+        ok, output = ops._systemctl("restart", service)
+        rows.append({"service": service, "ok": ok, "output": output[:1000]})
+    return "Service restart command finished.", {"results": rows}
+
+
+def _action_worker_journal():
+    try:
+        result = subprocess.run(
+            [
+                "journalctl",
+                "-u",
+                "marketsharp_queue_worker.service",
+                "--since",
+                "30 min ago",
+                "--no-pager",
+                "-n",
+                "120",
+                "--output=cat",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        output = (result.stdout or result.stderr or "").strip()
+        return "Worker journal loaded.", {"exitCode": result.returncode, "output": output[-12000:]}
+    except Exception as exc:
+        return "Worker journal unavailable on this host.", {"error": str(exc)}
+
+
+def _action_local_health():
+    if not ops._HAS_REQUESTS:
+        raise ValueError("Python package 'requests' is required on the backend.")
+
+    response = ops._requests.get(ops.HEALTH_URL, timeout=4)
+    return "Local health endpoint checked.", {
+        "url": ops.HEALTH_URL,
+        "statusCode": response.status_code,
+        "body": response.text[:500],
+    }
+
+
+def _action_env_summary():
+    keys = [
+        "MARKETSHARP_MODE",
+        "MARKETSHARP_COMPANY_ID",
+        "MARKETSHARP_ODATA_URL",
+        "FLASK_PORT",
+        "PENDING_QUEUE_DB_PATH",
+        "MARKETSHARP_UI_BASE_URL",
+        "MARKETSHARP_UI_SEARCH_SELECTOR",
+        "COMPANYCAM_WEBHOOK_ID",
+    ]
+    rows = {}
+    for key in keys:
+        value = os.getenv(key)
+        if any(secret_key in key for secret_key in ("KEY", "SECRET", "PASSWORD", "TOKEN")):
+            rows[key] = "(set)" if value else "(not set)"
+        else:
+            rows[key] = value or "(not set)"
+    return "Environment summary loaded.", {"values": rows}
+
+
+def _action_predeploy_check():
+    queue_existing = ops._discover_existing_db_paths(ops.QUEUE_DB_CANDIDATES)
+    warnings = []
+    errors = []
+
+    if len(queue_existing) > 1:
+        fingerprints = {ops._queue_db_fingerprint(path) for path in queue_existing}
+        if len(fingerprints) > 1:
+            warnings.append("Queue DB candidates diverge in content; consolidate before deploy.")
+
+    db_targets = []
+    for path in [ops.DB_PATH, ops.AUDIT_DB] + ops.QUEUE_DB_CANDIDATES + ops.IDEMPOTENCY_DB_CANDIDATES + ops.AUDIT_DB_CANDIDATES:
+        absolute = os.path.abspath(path)
+        if os.path.exists(absolute) and absolute not in db_targets:
+            db_targets.append(absolute)
+
+    for path in db_targets:
+        integrity = ops._sqlite_integrity(path)
+        if integrity != "ok":
+            errors.append({"path": path, "integrity": integrity})
+
+    return "Predeploy check completed.", {
+        "queueDb": ops.DB_PATH,
+        "auditDb": ops.AUDIT_DB,
+        "checkedFiles": len(db_targets),
+        "warnings": warnings,
+        "errors": errors,
+        "pass": len(errors) == 0,
+    }

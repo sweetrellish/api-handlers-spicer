@@ -10,7 +10,7 @@
 
 - The server repository lives at `/home/rellis/spicer`.
 - Do not rearrange server paths to match the dev machine.
-- Use the repo's environment resolution first; use ad hoc paths only as temporary compatibility fallbacks.
+- Use ad hoc paths only when the repo's environment resolution explicitly fails; flag the fallback in a comment and do not commit it without user approval.
 
 ## Git Workflow Contract
 
@@ -31,6 +31,7 @@
 
 - Prefer restore from `backups/` snapshots first.
 - If the queue DB is gone, recover it before trying to replay tags.
+- If the queue DB and all backups are absent, halt and ask the user for a recovery strategy before making any structural changes.
 - If the audit DB is gone, use backups or reconstruction from the queue/logs; do not assume it can be recreated from the API alone.
 
 ## Deployment Rules
@@ -41,7 +42,7 @@
 
 ## Agent Discipline
 
-- Before editing, identify whether the change belongs to server deployment, dev sandboxing, or data recovery.
+- Before editing, use this order: 1. Determine target (production IP vs. local). 2. Classify change type (deployment / sandbox / recovery). 3. Apply the matching section's rules. If the task spans multiple types, treat the highest-risk type's rules as authoritative.
 - Do not rewrite server layout to match local layout.
 - Prefer configuration and path resolution over hard-coded machine-specific paths.
 - When in doubt, stop at the boundary and ask for approval before a live-server mutation.

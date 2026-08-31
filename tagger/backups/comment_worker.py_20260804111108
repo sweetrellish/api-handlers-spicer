@@ -1,0 +1,2586 @@
+"""Mention notification worker for Spicer MarketSharp operations.
+
+This worker supports two input sources:
+1. api_comments: read comment payloads from API_URL/comments (local/dev path)
+2. marketsharp_notes: poll MarketSharp OData Notes directly (server/prod path)
+
+For each note/comment it extracts @username mentions, resolves recipient email
+addresses from tagger/marketsharp_user-email.json, and sends notifications via
+the configured relay endpoint.
+"""
+
+import os
+import sys
+import importlib.util
+import re
+import time
+import random
+import json
+import argparse
+import html
+import base64
+from datetime import datetime, timezone, timedelta
+from collections import defaultdict
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
+import requests
+
+_DISPLAY_TZ_NAME = os.getenv("TAGGER_DISPLAY_TZ", "America/New_York")
+try:
+    _DISPLAY_TZ = ZoneInfo(_DISPLAY_TZ_NAME) if ZoneInfo else timezone.utc
+    _DISPLAY_TZ_LABEL = ""
+except Exception:
+    _DISPLAY_TZ = timezone.utc
+    _DISPLAY_TZ_LABEL = " UTC"
+
+# Ensure src imports resolve even when launched outside wrapper scripts.
+_TAGGER_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.dirname(_TAGGER_DIR)
+_SRC_DIR = os.path.join(_ROOT_DIR, "src")
+for _p in (_ROOT_DIR, _SRC_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+_MS_SERVICE_PATH = os.path.join(_SRC_DIR, "marketsharp_service.py")
+_MS_SPEC = importlib.util.spec_from_file_location("spicer_src_marketsharp_service", _MS_SERVICE_PATH)
+if _MS_SPEC is None or _MS_SPEC.loader is None:
+    raise ImportError(f"Unable to load MarketSharpService module from {_MS_SERVICE_PATH}")
+_MS_MODULE = importlib.util.module_from_spec(_MS_SPEC)
+_MS_SPEC.loader.exec_module(_MS_MODULE)
+MarketSharpService = _MS_MODULE.MarketSharpService
+
+# Load environment variables from .env file
+from env_bootstrap import load_repo_env  # noqa: E402
+
+# Load shared defaults first, then let tagger/.env override worker-specific values.
+load_repo_env(_ROOT_DIR, override=False)
+load_repo_env(_TAGGER_DIR, override=True)
+
+# Import Config after env bootstrap so tagger/.env values take precedence.
+from config import Config  # noqa: E402
+
+# Define the CommentWorker class
+class CommentWorker:
+    _TRANSIENT_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
+
+    # Initialize the CommentWorker with configuration settings
+    def __init__(
+        self,
+        email_api_url_override=None,
+        email_api_key_override=None,
+        email_api_query_token_override=None,
+        poll_seconds_override=None,
+        source_override=None,
+        bootstrap_process_existing_override=None,
+    ):
+        # Load configuration settings from the Config class
+        self.config = Config()
+
+        # Set API URLs and keys from the configuration
+        self.webhook_url = (os.getenv("WEBHOOK_URL", "") or "").strip()
+        self.api_url = os.getenv("API_URL")
+        if not self.api_url:
+            self.api_url = self._derive_api_url_from_webhook_url(self.webhook_url)
+        self.email_api_url = email_api_url_override or os.getenv("EMAIL_API_URL")
+        self.email_api_key = email_api_key_override or os.getenv("EMAIL_API_KEY")
+        self.email_api_query_token = (
+            email_api_query_token_override or os.getenv("EMAIL_API_QUERY_TOKEN")
+        )
+        self.source = (source_override or os.getenv("COMMENT_WORKER_SOURCE", "api_comments")).strip().lower()
+        self.poll_seconds = int(poll_seconds_override or os.getenv("COMMENT_WORKER_POLL_SECONDS", "60"))
+        self.http_timeout_seconds = int(os.getenv("COMMENT_WORKER_HTTP_TIMEOUT_SECONDS", "20"))
+        self.odata_retry_max = max(0, int(os.getenv("COMMENT_WORKER_ODATA_RETRY_MAX", "2")))
+        self.odata_retry_base_seconds = max(
+            0.05,
+            float(os.getenv("COMMENT_WORKER_ODATA_RETRY_BASE_SECONDS", "0.35")),
+        )
+        self.odata_retry_max_seconds = max(
+            self.odata_retry_base_seconds,
+            float(os.getenv("COMMENT_WORKER_ODATA_RETRY_MAX_SECONDS", "2.0")),
+        )
+        self.odata_failure_streak_limit = max(
+            1,
+            int(os.getenv("COMMENT_WORKER_ODATA_FAILURE_STREAK_LIMIT", "5")),
+        )
+        self.odata_cooldown_seconds = max(
+            0,
+            int(os.getenv("COMMENT_WORKER_ODATA_FAILURE_COOLDOWN_SECONDS", "180")),
+        )
+        self.odata_non_transient_cooldown_seconds = max(
+            0,
+            int(
+                os.getenv(
+                    "COMMENT_WORKER_ODATA_NON_TRANSIENT_COOLDOWN_SECONDS",
+                    str(self.odata_cooldown_seconds),
+                )
+            ),
+        )
+        self._odata_failure_streak = 0
+        self._odata_cooldown_until = 0.0
+        self._odata_bad_request_logged = False
+        self._poll_count = 0
+        self._last_reliable_poll_time = time.time()
+        self.notes_filter_overlap_seconds = max(
+            120,
+            int(os.getenv("COMMENT_WORKER_NOTES_FILTER_OVERLAP_SECONDS", "300")),
+        )
+        self.poll_audit_every = max(
+            0,
+            int(os.getenv("COMMENT_WORKER_POLL_AUDIT_EVERY", "30")),
+        )
+        self.poll_audit_stale_seconds = max(
+            self.notes_filter_overlap_seconds,
+            int(os.getenv("COMMENT_WORKER_POLL_AUDIT_STALE_SECONDS", "900")),
+        )
+        self.auto_restart_on_stale_audit = (
+            os.getenv("COMMENT_WORKER_AUTO_RESTART_ON_STALE_AUDIT", "true").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
+        self.stale_audit_consecutive_limit = max(
+            1,
+            int(os.getenv("COMMENT_WORKER_STALE_AUDIT_CONSECUTIVE_LIMIT", "2")),
+        )
+        self._stale_audit_count = 0
+        self._odata_cooldown_start = 0.0
+        self.log_throttle_window_seconds = max(
+            5,
+            int(os.getenv("COMMENT_WORKER_LOG_THROTTLE_SECONDS", "120")),
+        )
+        self._log_throttle_state = {}
+        self.state_file = os.getenv(
+            "COMMENT_WORKER_STATE_FILE",
+            os.path.join(os.path.dirname(__file__), "comment_worker_state.json"),
+        )
+        bootstrap_default = os.getenv("COMMENT_WORKER_BOOTSTRAP_PROCESS_EXISTING", "false").lower() == "true"
+        self.bootstrap_process_existing = (
+            bootstrap_default
+            if bootstrap_process_existing_override is None
+            else bootstrap_process_existing_override
+        )
+        self.ambiguous_alias_mode = (
+            os.getenv("COMMENT_WORKER_AMBIGUOUS_ALIAS_MODE", "all").strip().lower() or "all"
+        )
+        self.require_explicit_mentions = (
+            os.getenv("COMMENT_WORKER_REQUIRE_EXPLICIT_MENTIONS", "true").strip().lower()
+            == "true"
+        )
+        try:
+            self.max_recipients_per_comment = int(
+                os.getenv("COMMENT_WORKER_MAX_RECIPIENTS_PER_COMMENT", "0")
+            )
+        except ValueError:
+            self.max_recipients_per_comment = 0
+
+        self.user_email_map_file = os.getenv(
+            "MARKETSHARP_USER_EMAIL_MAP_FILE",
+            os.path.join(os.path.dirname(__file__), "marketsharp_user-email.json"),
+        )
+        self.splash_image_file = os.getenv(
+            "COMMENT_WORKER_SPLASH_IMAGE_PATH",
+            os.path.join(os.path.dirname(__file__), "splash_dim_yellow.png"),
+        )
+        splash_url_raw = (os.getenv("COMMENT_WORKER_SPLASH_IMAGE_URL", "") or "").strip()
+        if splash_url_raw.lower() == "auto":
+            splash_url_raw = ""
+        self.splash_image_url = splash_url_raw or self._derive_splash_url_from_webhook_url(self.webhook_url)
+        self.splash_mode = os.getenv("COMMENT_WORKER_SPLASH_MODE", "ascii").strip().lower() or "ascii"
+        self.enable_data_uri_splash = (
+            os.getenv("COMMENT_WORKER_ENABLE_DATA_URI_SPLASH", "false").strip().lower() == "true"
+        )
+        self._splash_data_uri = None
+        self.activity_notify_enabled = (
+            os.getenv("ACTIVITY_NOTIFY_ENABLED", "false").strip().lower() == "true"
+        )
+        self.activity_notify_dry_run = (
+            os.getenv("ACTIVITY_NOTIFY_DRY_RUN", "true").strip().lower() == "true"
+        )
+        self.activity_notify_type = os.getenv("ACTIVITY_NOTIFY_TYPE", "Event").strip() or "Event"
+        self.activity_notify_reference_id = self._parse_optional_int(
+            os.getenv("ACTIVITY_NOTIFY_REFERENCE_ID", "")
+        )
+        self.activity_notify_result_id = self._parse_optional_int(
+            os.getenv("ACTIVITY_NOTIFY_RESULT_ID", "")
+        )
+        self.activity_notify_reminder_minutes = self._parse_optional_int(
+            os.getenv("ACTIVITY_NOTIFY_REMINDER_MINUTES", "15")
+        )
+        self.activity_notify_due_offset_minutes = self._parse_optional_int(
+            os.getenv("ACTIVITY_NOTIFY_DUE_OFFSET_MINUTES", "30")
+        )
+        if self.activity_notify_due_offset_minutes is None:
+            self.activity_notify_due_offset_minutes = 30
+        self.activity_notify_notes_prefix = (
+            os.getenv("ACTIVITY_NOTIFY_NOTES_PREFIX", "[Tagger Activity]").strip()
+            or "[Tagger Activity]"
+        )
+        self.activity_notify_loop_guard_enabled = (
+            os.getenv("ACTIVITY_NOTIFY_LOOP_GUARD_ENABLED", "true").strip().lower() == "true"
+        )
+        self.activity_notify_loop_guard_markers = self._load_loop_guard_markers()
+        self.activity_notify_max_per_note = self._parse_optional_int(
+            os.getenv("ACTIVITY_NOTIFY_MAX_PER_NOTE", "0")
+        )
+        if self.activity_notify_max_per_note is None:
+            self.activity_notify_max_per_note = 0
+        self.activity_notify_scheduled_by_employee_id = (
+            os.getenv("ACTIVITY_NOTIFY_SCHEDULED_BY_EMPLOYEE_ID", "").strip() or None
+        )
+        self.activity_notify_employee_map = self._load_activity_employee_map()
+        self.user_email_map = self.load_user_email_map()
+        self.user_display_names = self._load_user_display_names()
+        self.email_to_usernames = self.build_email_to_usernames(self.user_email_map)
+        self.group_map_file = os.getenv(
+            "MARKETSHARP_GROUP_MENTION_MAP_FILE",
+            os.path.join(os.path.dirname(__file__), "marketsharp_group_mentions.json"),
+        )
+        self.staff_group_enabled = (
+            os.getenv("COMMENT_WORKER_STAFF_GROUP_ENABLED", "true").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
+        self.staff_group_members = [
+            self._normalize_token(token)
+            for token in os.getenv("COMMENT_WORKER_STAFF_GROUP_MEMBERS", "").split(",")
+            if self._normalize_token(token)
+        ]
+        self.staff_group_aliases = [
+            self._normalize_token(token)
+            for token in os.getenv("COMMENT_WORKER_STAFF_GROUP_ALIASES", "staff,staffteam,ops").split(",")
+            if self._normalize_token(token)
+        ]
+        self.alias_to_username, self.ambiguous_aliases = self.build_alias_index(self.user_email_map)
+        self.group_alias_to_recipients = self.load_group_mentions_map()
+        self.seen_comment_ids = set()
+        self._contact_entity_cache = {}
+        self.state = self.load_state()
+        self._initialize_reliable_poll_cursor()
+        self.ms_service = MarketSharpService() if (self.source == "marketsharp_notes" or self.activity_notify_enabled) else None
+        self.print_email_config_status()
+
+    @staticmethod
+    def _timestamp_to_epoch(ts_raw):
+        raw = (ts_raw or "").strip()
+        if not raw or raw == "\u2014":
+            return None
+
+        match = re.match(r"^/Date\((\d{10,16})\)/$", raw)
+        if match:
+            try:
+                millis = int(match.group(1))
+                return millis / 1000.0 if millis > 10_000_000_000 else float(millis)
+            except Exception:
+                return None
+
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except Exception:
+            pass
+
+        if re.fullmatch(r"\d{10,16}", raw):
+            try:
+                value = int(raw)
+                return value / 1000.0 if value > 10_000_000_000 else float(value)
+            except Exception:
+                return None
+
+        return None
+
+    def _initialize_reliable_poll_cursor(self):
+        # Only advance the filter cursor from durable state sources so fallback
+        # polls (top_only) do not silently skip a time window.
+        now = time.time()
+        epoch = self.state.get("last_reliable_poll_epoch")
+        if isinstance(epoch, (int, float)) and epoch > 0:
+            self._last_reliable_poll_time = float(epoch)
+            return
+
+        last_seen = self.state.get("last_seen_note_timestamp", "")
+        last_seen_epoch = self._timestamp_to_epoch(last_seen)
+        if last_seen_epoch:
+            self._last_reliable_poll_time = float(last_seen_epoch)
+            return
+
+        self._last_reliable_poll_time = now
+
+    @staticmethod
+    def _normalize_token(value):
+        if not isinstance(value, str):
+            return ""
+        token = (value or "").strip().lower()
+        if token.startswith("@"):
+            token = token[1:]
+        return token
+
+    @staticmethod
+    def _parse_optional_int(value):
+        raw = ("" if value is None else str(value)).strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+
+    def _load_activity_employee_map(self):
+        raw = os.getenv("ACTIVITY_NOTIFY_EMPLOYEE_MAP_JSON", "").strip()
+        if not raw:
+            return {}
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            print(f"Failed to parse ACTIVITY_NOTIFY_EMPLOYEE_MAP_JSON: {exc}")
+            return {}
+        if not isinstance(payload, dict):
+            print("ACTIVITY_NOTIFY_EMPLOYEE_MAP_JSON must be a JSON object.")
+            return {}
+        normalized = {}
+        for key, value in payload.items():
+            norm_key = self._normalize_token(key)
+            norm_value = ("" if value is None else str(value)).strip()
+            if norm_key and norm_value:
+                normalized[norm_key] = norm_value
+        return normalized
+
+    def _load_loop_guard_markers(self):
+        raw = os.getenv(
+            "ACTIVITY_NOTIFY_LOOP_GUARD_MARKERS",
+            "[Tagger Activity],Check tagged note:",
+        ).strip()
+        markers = []
+        for token in raw.split(","):
+            marker = (token or "").strip()
+            if marker:
+                markers.append(marker.lower())
+        return markers
+
+    def _is_loop_guard_note(self, note_text):
+        if not self.activity_notify_loop_guard_enabled:
+            return False
+        normalized = (note_text or "").strip().lower()
+        if not normalized:
+            return False
+        for marker in self.activity_notify_loop_guard_markers:
+            if marker and normalized.startswith(marker):
+                return True
+        return False
+
+    @staticmethod
+    def build_email_to_usernames(user_email_map):
+        """Build reverse email lookup to support group members declared by email."""
+        reverse = defaultdict(set)
+        for username, email in (user_email_map or {}).items():
+            # Skip non-email metadata entries (e.g. _aliases dict).
+            if not isinstance(email, str):
+                continue
+            key = (username or "").strip().lower()
+            mail = email.strip().lower()
+            if not key or "@" not in mail:
+                continue
+            reverse[mail].add(key)
+        return {k: sorted(v) for k, v in reverse.items()}
+
+    def _member_to_recipient_tokens(self, member):
+        """Resolve a group member spec into internal recipient tokens.
+
+        Returns username tokens (e.g. "rellis") and/or direct email tokens
+        (e.g. "email:person@example.com").
+        """
+        if isinstance(member, dict):
+            username = self._normalize_token(member.get("username"))
+            if username:
+                member = username
+            else:
+                email = self._normalize_token(member.get("email"))
+                member = email
+
+        token = self._normalize_token(member)
+        if not token:
+            return []
+
+        if "@" in token:
+            usernames = self.email_to_usernames.get(token, [])
+            if usernames:
+                return usernames
+            return [f"email:{token}"]
+
+        if token in self.user_email_map:
+            return [token]
+        if token in self.alias_to_username:
+            return [self.alias_to_username[token]]
+        return []
+
+    def _collect_group_recipients(self, raw_group_data):
+        """Collect recipient tokens from group JSON payload.
+
+        Accepts either:
+        - ["member1", "member2"]
+        - {"members": [...], "aliases": [...]}
+        """
+        if isinstance(raw_group_data, list):
+            members = raw_group_data
+            aliases = []
+        elif isinstance(raw_group_data, dict):
+            members = raw_group_data.get("members", [])
+            aliases = raw_group_data.get("aliases", [])
+        else:
+            return set(), []
+
+        recipients = set()
+        for member in members:
+            for recipient in self._member_to_recipient_tokens(member):
+                recipients.add(recipient)
+        alias_tokens = []
+        for alias in aliases:
+            normalized = self._normalize_token(alias)
+            if normalized:
+                alias_tokens.append(normalized)
+        return recipients, alias_tokens
+
+    def load_group_mentions_map(self):
+        """Load mention groups from optional JSON map.
+
+        Always includes default aliases for notifying all mapped users:
+        everyone, all, allhands, team.
+
+        Optional built-in staff aliases are enabled by default and can be
+        populated via COMMENT_WORKER_STAFF_GROUP_MEMBERS.
+        """
+        all_user_recipients = set((self.user_email_map or {}).keys())
+        groups = {
+            "everyone": set(all_user_recipients),
+            "all": set(all_user_recipients),
+            "allhands": set(all_user_recipients),
+            "team": set(all_user_recipients),
+        }
+
+        if self.staff_group_enabled:
+            staff_recipients = set()
+            for member in self.staff_group_members:
+                for recipient in self._member_to_recipient_tokens(member):
+                    staff_recipients.add(recipient)
+            if staff_recipients:
+                for alias in self.staff_group_aliases:
+                    groups.setdefault(alias, set()).update(staff_recipients)
+
+        try:
+            with open(self.group_map_file, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                print(f"Group map file is not an object: {self.group_map_file}")
+                return groups
+
+            for group_name, raw_group_data in payload.items():
+                group_key = self._normalize_token(group_name)
+                if not group_key:
+                    continue
+                recipients, aliases = self._collect_group_recipients(raw_group_data)
+                if not recipients:
+                    continue
+
+                groups.setdefault(group_key, set()).update(recipients)
+                for alias in aliases:
+                    groups.setdefault(alias, set()).update(recipients)
+
+            print(
+                f"Loaded group mention map from {self.group_map_file} "
+                f"({len(groups)} group aliases)."
+            )
+            return groups
+        except FileNotFoundError:
+            # Optional file: not required for default everyone/all behavior.
+            return groups
+        except Exception as e:
+            print(f"Failed to load group mention map {self.group_map_file}: {e}")
+            return groups
+
+    @staticmethod
+    def _mask_secret(value):
+        if not value:
+            return "<missing>"
+        value = str(value)
+        if len(value) <= 6:
+            return "***"
+        return f"{value[:3]}...{value[-3:]}"
+
+    def _get_splash_data_uri(self):
+        if self._splash_data_uri is not None:
+            return self._splash_data_uri
+
+        try:
+            with open(self.splash_image_file, "rb") as splash_file:
+                encoded = base64.b64encode(splash_file.read()).decode("ascii")
+            self._splash_data_uri = f"data:image/png;base64,{encoded}"
+        except Exception as exc:
+            print(f"Warning: unable to load splash image '{self.splash_image_file}': {exc}")
+            self._splash_data_uri = ""
+
+        return self._splash_data_uri
+
+    def print_email_config_status(self):
+        has_url = bool(self.email_api_url)
+        has_key = bool(self.email_api_key)
+        has_query_token = bool(self.email_api_query_token)
+        has_url_token = self._has_token_in_url(self.email_api_url)
+        if has_key:
+            auth_mode = "bearer"
+        elif has_query_token:
+            auth_mode = "query_token"
+        elif has_url_token:
+            auth_mode = "url_token"
+        else:
+            auth_mode = "missing"
+        print(
+            "Email config status: "
+            f"url={'set' if has_url else 'missing'}, "
+            f"bearer_key={'set' if has_key else 'missing'}, "
+            f"query_token={'set' if has_query_token else 'missing'}, "
+            f"url_has_token={'yes' if has_url_token else 'no'}, "
+            f"auth_mode={auth_mode}"
+        )
+        if has_query_token:
+            print(f"Email query token: {self._mask_secret(self.email_api_query_token)}")
+        print(
+            f"Worker runtime: poll_seconds={self.poll_seconds}, "
+            f"http_timeout_seconds={self.http_timeout_seconds}"
+        )
+        print(
+            "Worker safety: "
+            f"poll_audit_every={self.poll_audit_every}, "
+            f"poll_audit_stale_seconds={self.poll_audit_stale_seconds}, "
+            f"auto_restart_on_stale_audit={'yes' if self.auto_restart_on_stale_audit else 'no'}, "
+            f"stale_audit_consecutive_limit={self.stale_audit_consecutive_limit}"
+        )
+        print(f"Worker API base: {self.api_url or '<missing>'}")
+        print(
+            f"Worker splash source: mode={self.splash_mode}, "
+            f"image_url={self.splash_image_url or '<none>'}, "
+            f"data_uri_fallback={'yes' if self.enable_data_uri_splash else 'no'}"
+        )
+        print(
+            f"Worker source: {self.source}, state_file={self.state_file}, "
+            f"bootstrap_process_existing={'yes' if self.bootstrap_process_existing else 'no'}"
+        )
+        print(
+            f"Mention safety: require_explicit_mentions={'yes' if self.require_explicit_mentions else 'no'}, "
+            f"max_recipients_per_comment={self.max_recipients_per_comment}"
+        )
+        print(
+            f"Mention alias index: {len(self.alias_to_username)} aliases, "
+            f"{len(self.ambiguous_aliases)} ambiguous, "
+            f"ambiguous_alias_mode={self.ambiguous_alias_mode}"
+        )
+        print(
+            f"Mention group aliases: {len(self.group_alias_to_recipients)} "
+            f"(source: {self.group_map_file})"
+        )
+        print(
+            "Activity notify: "
+            f"enabled={'yes' if self.activity_notify_enabled else 'no'}, "
+            f"dry_run={'yes' if self.activity_notify_dry_run else 'no'}, "
+            f"type={self.activity_notify_type}, "
+            f"reference_id={self.activity_notify_reference_id}, "
+            f"result_id={self.activity_notify_result_id}, "
+            f"employee_map={len(self.activity_notify_employee_map)}, "
+            f"loop_guard={'yes' if self.activity_notify_loop_guard_enabled else 'no'}, "
+            f"loop_guard_markers={len(self.activity_notify_loop_guard_markers)}"
+        )
+
+    @staticmethod
+    def _derive_api_url_from_webhook_url(webhook_url):
+        """Derive API base URL from WEBHOOK_URL when API_URL is not set."""
+        if not webhook_url:
+            return ""
+        parsed = urlsplit(webhook_url)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        return urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
+
+    @staticmethod
+    def _derive_splash_url_from_webhook_url(webhook_url):
+        """Derive splash image URL from WEBHOOK_URL host."""
+        if not webhook_url:
+            return ""
+        parsed = urlsplit(webhook_url)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        return urlunsplit((parsed.scheme, parsed.netloc, "/assets/email-splash.png", "", ""))
+
+    def has_email_api_config(self):
+        has_url_token = self._has_token_in_url(self.email_api_url)
+        has_auth = bool(self.email_api_key or self.email_api_query_token or has_url_token)
+        return bool(self.email_api_url and has_auth)
+
+    @staticmethod
+    def _has_token_in_url(url):
+        if not url:
+            return False
+        parsed = urlsplit(url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        return bool(query.get("token"))
+
+    def validate_listen_config(self):
+        missing = []
+        if self.source == "api_comments" and not self.api_url:
+            missing.append("API_URL (or WEBHOOK_URL for auto-derive)")
+        if self.source == "marketsharp_notes":
+            if not Config.MARKETSHARP_COMPANY_ID:
+                missing.append("MARKETSHARP_COMPANY_ID")
+            if not Config.MARKETSHARP_USER_KEY:
+                missing.append("MARKETSHARP_USER_KEY")
+            if not Config.MARKETSHARP_SECRET_KEY:
+                missing.append("MARKETSHARP_SECRET_KEY")
+        if missing:
+            raise ValueError(
+                "Missing required environment variables for listen mode: "
+                + ", ".join(missing)
+            )
+
+    def validate_email_config(self):
+        missing = []
+        if not self.email_api_url:
+            missing.append("EMAIL_API_URL")
+        has_url_token = self._has_token_in_url(self.email_api_url)
+        if not self.email_api_key and not self.email_api_query_token and not has_url_token:
+            missing.append("EMAIL_API_KEY or EMAIL_API_QUERY_TOKEN")
+        if missing:
+            raise ValueError(
+                "Email sending requires: " + ", ".join(missing)
+            )
+
+    def _build_email_endpoint(self):
+        """Return email endpoint URL and auth headers.
+
+        Supports either:
+        - Authorization Bearer token via EMAIL_API_KEY
+        - Query token via EMAIL_API_QUERY_TOKEN (for Apps Script relays)
+        """
+        url = self.email_api_url or ""
+        headers = {}
+
+        if self.email_api_key:
+            headers["Authorization"] = f"Bearer {self.email_api_key}"
+
+        if self.email_api_query_token:
+            parsed = urlsplit(url)
+            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            query["token"] = self.email_api_query_token
+            url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+
+        return url, headers
+
+    def load_user_email_map(self):
+        """Load username->email mapping from disk.
+
+        Supports two value formats:
+          - plain string:              {"rellis": "ryan@spicerbros.com"}
+          - name+email object:         {"rellis": {"name": "Ryan Ellis", "email": "ryan@spicerbros.com"}}
+
+        The special "_aliases" key is preserved as-is so build_alias_index
+        can read explicit alias overrides.
+        """
+        try:
+            with open(self.user_email_map_file, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                print(f"User map file is not an object: {self.user_email_map_file}")
+                return {}
+
+            mapping = {}
+            for username, entry in raw.items():
+                if not isinstance(username, str):
+                    continue
+                key = username.strip().lower()
+                if not key:
+                    continue
+                # Preserve _aliases metadata dict unchanged so build_alias_index can use it.
+                if key == "_aliases":
+                    if isinstance(entry, dict):
+                        mapping[key] = entry
+                    continue
+                # Support both a plain email string and a {name, email} object.
+                if isinstance(entry, str):
+                    email = entry.strip().lower()
+                elif isinstance(entry, dict):
+                    email = (entry.get("email") or "").strip().lower()
+                else:
+                    continue
+                if not email or "@" not in email:
+                    continue
+                mapping[key] = email
+
+            print(f"Loaded {len(mapping)} user email mappings from {self.user_email_map_file}")
+            return mapping
+        except FileNotFoundError:
+            print(f"User map file not found: {self.user_email_map_file}")
+            return {}
+        except Exception as e:
+            print(f"Failed to load user map file {self.user_email_map_file}: {e}")
+            return {}
+
+    def _load_user_display_names(self):
+        """Load username->display name mapping for email greetings."""
+        try:
+            with open(self.user_email_map_file, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                return {}
+            names = {}
+            for username, entry in raw.items():
+                if not isinstance(username, str):
+                    continue
+                key = username.strip().lower()
+                if not key or key == "_aliases":
+                    continue
+                if isinstance(entry, dict):
+                    name = (entry.get("name") or "").strip()
+                    if name:
+                        names[key] = name
+            return names
+        except Exception:
+            return {}
+
+    def build_alias_index(self, user_email_map):
+        """Build alias lookup for intuitive mention matching.
+
+        OR-gate behavior:
+        - explicit @username mention
+        - plain username token (e.g., "rellis")
+        - first-name alias token from email local-part (e.g., "ryan")
+        - any extra aliases declared under "_aliases" in the map file
+
+        Ambiguous aliases (multiple usernames sharing same alias) are tracked and
+        handled according to ambiguous_alias_mode (default: skip — require @username).
+        """
+        # Pull out the optional explicit-alias overrides before iterating users.
+        explicit_aliases = {}
+        if isinstance(user_email_map, dict):
+            raw = user_email_map.get("_aliases")
+            if isinstance(raw, dict):
+                for uname, aliases in raw.items():
+                    key = (uname or "").strip().lower()
+                    if key and isinstance(aliases, list):
+                        explicit_aliases[key] = [a.strip().lower() for a in aliases if a.strip()]
+
+        alias_candidates = {}
+        for username, email in (user_email_map or {}).items():
+            key = (username or "").strip().lower()
+            if not key or key == "_aliases":
+                continue
+
+            # Username itself is always a valid alias.
+            alias_candidates.setdefault(key, set()).add(key)
+
+            # Add first-name alias from email when available.
+            first_alias = self._derive_first_name_alias(email)
+            if first_alias:
+                alias_candidates.setdefault(first_alias, set()).add(key)
+
+            # Apply any explicitly declared extra aliases for this user.
+            for extra in explicit_aliases.get(key, []):
+                alias_candidates.setdefault(extra, set()).add(key)
+
+        alias_to_username = {}
+        ambiguous_aliases = {}
+        for alias, usernames in alias_candidates.items():
+            if len(usernames) == 1:
+                alias_to_username[alias] = next(iter(usernames))
+            else:
+                ambiguous_aliases[alias] = sorted(usernames)
+
+        return alias_to_username, ambiguous_aliases
+
+    @staticmethod
+    def _derive_first_name_alias(email):
+        if not isinstance(email, str) or "@" not in email:
+            return ""
+        local = email.split("@", 1)[0].strip().lower()
+        if not local:
+            return ""
+        first = re.split(r"[._-]+", local)[0].strip().lower()
+        if len(first) < 3:
+            return ""
+        return first
+
+    def load_state(self):
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                return {}
+            return raw
+        except FileNotFoundError:
+            return {}
+        except Exception as e:
+            print(f"Failed to load worker state {self.state_file}: {e}")
+            return {}
+
+    def save_state(self):
+        try:
+            with open(self.state_file, "w", encoding="utf-8") as f:
+                json.dump(self.state, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save worker state {self.state_file}: {e}")
+
+    def fetch_comments(self):   
+        """Fetch comments from the Marketsharp API."""
+        try:
+            # Make a GET request to the comments endpoint of the Marketsharp API
+            comments_url = f"{self.api_url}/comments"
+            response = requests.get(comments_url, timeout=self.http_timeout_seconds)
+            if response.status_code == 404:
+                print(
+                    f"Error fetching comments: '{comments_url}' returned 404. "
+                    "No /comments endpoint is available at the configured API base."
+                )
+                return []
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list):
+                print(f"Error fetching comments: expected list, got {type(payload).__name__}")
+                return []
+            return payload
+        
+        # Handle any exceptions that occur during the API request
+        except requests.RequestException as e:
+            print(f"Error fetching comments: {e}")
+            return []
+
+    @staticmethod
+    def _extract_note_id(note):
+        if not isinstance(note, dict):
+            return ""
+        for key in ("id", "Id", "noteId", "NoteID"):
+            value = note.get(key)
+            if value is not None:
+                return str(value)
+        return ""
+
+    @staticmethod
+    def _extract_note_text(note):
+        if not isinstance(note, dict):
+            return ""
+        for key in ("note", "Note", "text", "Text", "body", "Body"):
+            value = note.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _extract_note_timestamp(note):
+        if not isinstance(note, dict):
+            return ""
+        for key in ("dateTime", "DateTime", "createdDate", "CreatedDate", "modifiedDate", "ModifiedDate"):
+            value = note.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _extract_note_contact_id(note):
+        if not isinstance(note, dict):
+            return ""
+        for key in ("contactId", "ContactId", "contact_id", "ContactID"):
+            value = note.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _get_first_value(payload, keys):
+        if not isinstance(payload, dict):
+            return ""
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _compose_city_state_postal(city, state, postal):
+        city = (city or "").strip()
+        state = (state or "").strip()
+        postal = (postal or "").strip()
+        if city and state and postal:
+            return f"{city}, {state} {postal}"
+        if city and state:
+            return f"{city}, {state}"
+        if city and postal:
+            return f"{city} {postal}"
+        if state and postal:
+            return f"{state} {postal}"
+        return city or state or postal
+
+    @staticmethod
+    def _is_guid_like(value):
+        token = (value or "").strip()
+        return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", token))
+
+    def _fetch_contact_entity(self, note, contact_id):
+        if not self.ms_service:
+            return {}
+
+        cid = (contact_id or "").strip()
+        if not cid:
+            return {}
+        if cid in self._contact_entity_cache:
+            return self._contact_entity_cache[cid]
+
+        # 1) Prefer deferred Contact URI embedded in note payload.
+        note_contact = note.get("Contact") if isinstance(note, dict) else None
+        if isinstance(note_contact, dict):
+            deferred = note_contact.get("__deferred") or {}
+            uri = deferred.get("uri") if isinstance(deferred, dict) else ""
+            if uri and hasattr(self.ms_service, "_fetch_odata_entity"):
+                entity = self.ms_service._fetch_odata_entity(uri)
+                if isinstance(entity, dict) and entity:
+                    self._contact_entity_cache[cid] = entity
+                    return entity
+
+        # 2) Fallback: probe common OData contact URI forms.
+        odata = (getattr(self.ms_service, "odata_url", "") or "").rstrip("/")
+        if not odata:
+            self._contact_entity_cache[cid] = {}
+            return {}
+
+        uri_candidates = []
+        if self._is_guid_like(cid):
+            uri_candidates.append(f"{odata}/Contacts(guid'{cid}')")
+        uri_candidates.append(f"{odata}/Contacts('{cid}')")
+        uri_candidates.append(f"{odata}/Contacts({cid})")
+
+        for uri in uri_candidates:
+            try:
+                resp = requests.get(
+                    uri,
+                    headers=self.ms_service._odata_headers(verbose=True),
+                    timeout=self.http_timeout_seconds,
+                )
+                if resp.status_code >= 400:
+                    continue
+                data = resp.json()
+                if isinstance(data, dict):
+                    raw = data.get("d", {})
+                    if isinstance(raw, dict) and raw:
+                        self._contact_entity_cache[cid] = raw
+                        return raw
+            except Exception:
+                continue
+
+        self._contact_entity_cache[cid] = {}
+        return {}
+
+    def _extract_note_contact_profile(self, note, contact_id):
+        profile = {
+            "account_name": "",
+            "company_name": "",
+            "address_line": "",
+            "city_state_postal": "",
+            "country": "",
+        }
+        if not isinstance(note, dict):
+            return profile
+
+        # First pass: values directly on note payload if exposed.
+        profile["account_name"] = self._get_first_value(
+            note,
+            ("contactName", "ContactName", "accountName", "AccountName", "customerName", "CustomerName", "name", "Name"),
+        )
+        profile["company_name"] = self._get_first_value(
+            note,
+            ("companyName", "CompanyName", "businessName", "BusinessName", "company", "Company"),
+        )
+        addr1 = self._get_first_value(note, ("address1", "Address1", "street", "Street", "line1", "Line1"))
+        city = self._get_first_value(note, ("city", "City"))
+        state = self._get_first_value(note, ("state", "State", "stateCode", "StateCode"))
+        postal = self._get_first_value(note, ("postalCode", "PostalCode", "zip", "Zip", "zipCode", "ZipCode"))
+        country = self._get_first_value(note, ("country", "Country", "countryCode", "CountryCode"))
+
+        # Second pass: enrich from contact entity if needed.
+        entity = self._fetch_contact_entity(note, contact_id)
+        ms_service = self.ms_service
+        if isinstance(entity, dict) and entity:
+            if not profile["account_name"]:
+                first = self._get_first_value(entity, ("firstName", "FirstName"))
+                last = self._get_first_value(entity, ("lastName", "LastName"))
+                full = " ".join(part for part in (first, last) if part).strip()
+                profile["account_name"] = full or self._get_first_value(
+                    entity,
+                    ("mailMergeName", "MailMergeName", "name", "Name", "qbName", "QbName"),
+                )
+
+            if not profile["company_name"]:
+                profile["company_name"] = self._get_first_value(
+                    entity,
+                    ("businessName", "BusinessName", "companyName", "CompanyName"),
+                )
+
+            if ms_service and hasattr(ms_service, "_extract_contact_address"):
+                addr = ms_service._extract_contact_address(entity) or {}
+                if not addr1:
+                    addr1 = self._get_first_value(addr, ("street", "address1", "line1"))
+                if not city:
+                    city = self._get_first_value(addr, ("city", "City"))
+                if not state:
+                    state = self._get_first_value(addr, ("state", "State", "stateCode", "StateCode"))
+                if not postal:
+                    postal = self._get_first_value(addr, ("postal", "postalCode", "zip", "zipCode"))
+
+            if not addr1:
+                addr1 = self._get_first_value(entity, ("address1", "Address1", "street", "Street", "line1", "Line1"))
+            if not city:
+                city = self._get_first_value(entity, ("city", "City"))
+            if not state:
+                state = self._get_first_value(entity, ("state", "State", "stateCode", "StateCode"))
+            if not postal:
+                postal = self._get_first_value(entity, ("postalCode", "PostalCode", "zip", "Zip", "zipCode", "ZipCode"))
+            if not country:
+                country = self._get_first_value(entity, ("country", "Country", "countryCode", "CountryCode"))
+
+        profile["address_line"] = (addr1 or "").strip()
+        profile["city_state_postal"] = self._compose_city_state_postal(city, state, postal)
+        profile["country"] = (country or "").strip()
+        return profile
+
+    @staticmethod
+    def _normalize_odata_payload(payload):
+        if isinstance(payload, list):
+            return payload
+        if not isinstance(payload, dict):
+            return []
+
+        if isinstance(payload.get("value"), list):
+            return payload["value"]
+
+        data = payload.get("d")
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            if isinstance(data.get("results"), list):
+                return data["results"]
+        return []
+
+    def _marketsharp_notes_query_variants(self):
+        # filter_date uses a 2-min overlap so boundary notes are never skipped.
+        # Keep the fetch size at 50 to match MarketSharp's cap and the catch-up script.
+        since = datetime.fromtimestamp(
+            max(0.0, self._last_reliable_poll_time - self.notes_filter_overlap_seconds), timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%S")
+        return [
+            ("orderby_top", {"$orderby": "dateTime desc", "$top": "50"}),
+            ("filter_date", {"$filter": f"dateTime ge datetime'{since}'", "$top": "50"}),
+            ("top_only", {"$top": "50"}),
+        ]
+
+    def _print_throttled(self, key, message):
+        now = time.time()
+        state = self._log_throttle_state.get(key)
+        window = self.log_throttle_window_seconds
+        if state and (now - state["window_start"]) < window:
+            state["suppressed"] += 1
+            return
+
+        if state and state["suppressed"] > 0:
+            print(
+                f"{key}: suppressed {state['suppressed']} similar messages in "
+                f"last {int(now - state['window_start'])}s"
+            )
+        print(message)
+        self._log_throttle_state[key] = {
+            "window_start": now,
+            "suppressed": 0,
+        }
+
+    def _maybe_log_poll_audit(self, *, last_variant, notes_count, had_error):
+        if self.poll_audit_every <= 0:
+            return
+        if self._poll_count % self.poll_audit_every != 0:
+            return
+
+        lag_s = max(0, int(time.time() - self._last_reliable_poll_time))
+        cursor_iso = datetime.fromtimestamp(
+            self._last_reliable_poll_time, timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        stale = lag_s >= self.poll_audit_stale_seconds
+        state = "stale" if stale else "ok"
+        err = "yes" if had_error else "no"
+        print(
+            "Poll audit: "
+            f"poll={self._poll_count}, state={state}, cursor_utc={cursor_iso}, "
+            f"cursor_lag_s={lag_s}, last_variant={last_variant}, notes={notes_count}, had_error={err}"
+        )
+
+        if stale:
+            self._stale_audit_count += 1
+        else:
+            self._stale_audit_count = 0
+
+        if (
+            self.auto_restart_on_stale_audit
+            and self._stale_audit_count >= self.stale_audit_consecutive_limit
+        ):
+            print(
+                "Poll audit stale threshold reached; exiting worker for systemd restart "
+                f"(stale_count={self._stale_audit_count}, limit={self.stale_audit_consecutive_limit})."
+            )
+            raise RuntimeError("Poll audit stale threshold reached")
+
+    def fetch_marketsharp_notes(self):
+        if not self.ms_service:
+            return []
+        self._poll_count += 1
+
+        now = time.time()
+        if self._odata_cooldown_until > now:
+            if self._odata_cooldown_start == 0.0:
+                self._odata_cooldown_start = now
+            remaining = int(self._odata_cooldown_until - now)
+            print(
+                "Skipping MarketSharp notes poll during cooldown "
+                f"({remaining}s remaining after repeated non-transient failures)."
+            )
+            self._maybe_log_poll_audit(last_variant="cooldown", notes_count=0, had_error=True)
+            return []
+
+        if self._odata_cooldown_start > 0.0:
+            gap_s = int(now - self._odata_cooldown_start)
+            gap_h = max(1, (gap_s + 3599) // 3600)
+            print(
+                f"MarketSharp OData cooldown cleared after ~{gap_s}s gap. "
+                f"If notes with @mentions may have been missed, run: "
+                f"python scripts/recover_missed_mentions.py --hours {gap_h} --apply"
+            )
+            self._odata_cooldown_start = 0.0
+
+        attempts = 1 + self.odata_retry_max
+        url = f"{self.ms_service.odata_url}/Notes"
+        query_variants = self._marketsharp_notes_query_variants()
+
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            try:
+                variant_http_error = None
+                for variant_name, params in query_variants:
+                    response = requests.get(
+                        url,
+                        headers=self.ms_service._odata_headers(),
+                        params=params,
+                        timeout=self.http_timeout_seconds,
+                    )
+
+                    if response.status_code in self._TRANSIENT_HTTP_STATUS:
+                        response.raise_for_status()
+
+                    if response.status_code == 400:
+                        if not self._odata_bad_request_logged:
+                            self._odata_bad_request_logged = True
+                            body_preview = (response.text or "")[:500].replace("\n", " ")
+                            print(
+                                "MarketSharp Notes 400 body preview (logged once this run): "
+                                f"{body_preview}"
+                            )
+                        if variant_name != query_variants[-1][0]:
+                            self._print_throttled(
+                                "odata_variant_400",
+                                "MarketSharp Notes query variant failed; trying fallback "
+                                f"variant={variant_name}, status=400",
+                            )
+                            continue
+
+                    response.raise_for_status()
+                    notes = self._normalize_odata_payload(response.json())
+                    self._odata_failure_streak = 0
+                    if not isinstance(notes, list):
+                        return []
+                    if variant_name != query_variants[0][0]:
+                        print(
+                            "MarketSharp Notes fallback query succeeded "
+                            f"variant={variant_name}, count={len(notes)}"
+                        )
+                    if variant_name != "top_only":
+                        self._last_reliable_poll_time = time.time()
+                        self.state["last_reliable_poll_epoch"] = int(self._last_reliable_poll_time)
+                        self.save_state()
+                    self._maybe_log_poll_audit(
+                        last_variant=variant_name,
+                        notes_count=len(notes),
+                        had_error=False,
+                    )
+                    return notes
+            except requests.HTTPError as e:
+                last_error = e
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 400:
+                    if attempt < attempts:
+                        wait_s = min(
+                            self.odata_retry_max_seconds,
+                            (self.odata_retry_base_seconds * (2 ** (attempt - 1))) + random.uniform(0.0, 0.15),
+                        )
+                        print(
+                            "MarketSharp Notes returned HTTP 400 across variants; "
+                            f"attempt={attempt}/{attempts}; retrying in {wait_s:.2f}s"
+                        )
+                        time.sleep(wait_s)
+                        continue
+                    # MarketSharp intermittently returns IIS 400 pages for valid OData
+                    # patterns. Do not enter cooldown/failure-streak on 400-only cycles.
+                    self._print_throttled(
+                        "odata_fetch_error",
+                        "MarketSharp Notes returned HTTP 400 across all variants; skipping cooldown for this cycle.",
+                    )
+                    self._maybe_log_poll_audit(
+                        last_variant="http_400",
+                        notes_count=0,
+                        had_error=True,
+                    )
+                    return []
+                if status in self._TRANSIENT_HTTP_STATUS and attempt < attempts:
+                    wait_s = min(
+                        self.odata_retry_max_seconds,
+                        (self.odata_retry_base_seconds * (2 ** (attempt - 1))) + random.uniform(0.0, 0.15),
+                    )
+                    print(
+                        f"Transient HTTP error fetching MarketSharp notes status={status} "
+                        f"attempt={attempt}/{attempts}; retrying in {wait_s:.2f}s"
+                    )
+                    time.sleep(wait_s)
+                    continue
+                # Non-transient HTTP failures (other than 400) should fail fast.
+                if self.odata_non_transient_cooldown_seconds > 0:
+                    if self._odata_cooldown_start == 0.0:
+                        self._odata_cooldown_start = time.time()
+                    self._odata_cooldown_until = max(
+                        self._odata_cooldown_until,
+                        time.time() + self.odata_non_transient_cooldown_seconds,
+                    )
+                    print(
+                        "MarketSharp notes poll entering non-transient cooldown "
+                        f"status={status}, cooldown={self.odata_non_transient_cooldown_seconds}s"
+                    )
+                break
+            except requests.RequestException as e:
+                last_error = e
+                if attempt < attempts:
+                    wait_s = min(
+                        self.odata_retry_max_seconds,
+                        (self.odata_retry_base_seconds * (2 ** (attempt - 1))) + random.uniform(0.0, 0.15),
+                    )
+                    print(
+                        f"Transient transport error fetching MarketSharp notes "
+                        f"attempt={attempt}/{attempts}: {e}; retrying in {wait_s:.2f}s"
+                    )
+                    time.sleep(wait_s)
+                    continue
+                break
+
+        self._odata_failure_streak += 1
+        if (
+            self.odata_cooldown_seconds > 0
+            and self._odata_failure_streak >= self.odata_failure_streak_limit
+        ):
+            if self._odata_cooldown_start == 0.0:
+                self._odata_cooldown_start = time.time()
+            self._odata_cooldown_until = time.time() + self.odata_cooldown_seconds
+            print(
+                "MarketSharp notes poll entering cooldown after repeated failures: "
+                f"streak={self._odata_failure_streak}, "
+                f"cooldown={self.odata_cooldown_seconds}s"
+            )
+
+        self._print_throttled(
+            "odata_fetch_error",
+            f"Error fetching MarketSharp notes: {last_error}",
+        )
+        self._maybe_log_poll_audit(last_variant="error", notes_count=0, had_error=True)
+        return []
+
+    def build_comment_from_note(self, note):
+        text = self._extract_note_text(note)
+        note_id = self._extract_note_id(note)
+        timestamp = self._extract_note_timestamp(note)
+        contact_id = self._extract_note_contact_id(note)
+        if not text or not note_id:
+            return None
+        if self._is_loop_guard_note(text):
+            print(
+                "Skipping MarketSharp note due to loop guard marker: "
+                f"note_id={note_id}"
+            )
+            return None
+        contact_url = (
+            f"https://www1.marketsharpm.com/ContactDetail.aspx?contactOid={contact_id}&contactType=3"
+            if contact_id else None
+        )
+        profile = self._extract_note_contact_profile(note, contact_id)
+        job_info = {
+            "contact_id": contact_id or "\u2014",
+            "contact_url": contact_url,
+            "note_id": note_id,
+            "timestamp": timestamp or "\u2014",
+            "source": "MarketSharp Notes",
+            "account_name": profile.get("account_name") or "",
+            "company_name": profile.get("company_name") or "",
+            "address_line": profile.get("address_line") or "",
+            "city_state_postal": profile.get("city_state_postal") or "",
+            "country": profile.get("country") or "",
+        }
+        return {
+            "id": note_id,
+            "text": text,
+            "timestamp": timestamp,
+            "contact_id": contact_id,
+            "job_info": job_info,
+            "source": "marketsharp_notes",
+        }
+
+    @staticmethod
+    def _format_timestamp_display(ts_raw):
+        """Return a human-readable timestamp in the configured display timezone."""
+        raw = (ts_raw or "").strip()
+        if not raw or raw == "\u2014":
+            return "\u2014"
+
+        def _render(dt_utc):
+            local = dt_utc.astimezone(_DISPLAY_TZ)
+            label = _DISPLAY_TZ_LABEL or f" {local.tzname() or ''}".rstrip()
+            return local.strftime("%b %d, %Y at %I:%M %p") + label
+
+        # MarketSharp legacy format: /Date(1779827940000)/
+        match = re.match(r"^/Date\((\d{10,16})\)/$", raw)
+        if match:
+            try:
+                millis = int(match.group(1))
+                seconds = millis / 1000.0 if millis > 10_000_000_000 else float(millis)
+                return _render(datetime.fromtimestamp(seconds, tz=timezone.utc))
+            except Exception:
+                return raw
+
+        # ISO8601 values (with Z or offset)
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return _render(dt)
+        except Exception:
+            pass
+
+        # Raw unix timestamp as string/number fallback
+        if re.fullmatch(r"\d{10,16}", raw):
+            try:
+                value = int(raw)
+                seconds = value / 1000.0 if value > 10_000_000_000 else float(value)
+                return _render(datetime.fromtimestamp(seconds, tz=timezone.utc))
+            except Exception:
+                return raw
+
+        return raw
+
+    def fetch_marketsharp_note_comments(self):
+        notes = self.fetch_marketsharp_notes()
+        comments = []
+        state_note_ids = set(self.state.get("processed_note_ids", []))
+
+        for note in notes:
+            comment = self.build_comment_from_note(note)
+            if not comment:
+                continue
+            note_id = comment["id"]
+            if note_id in state_note_ids:
+                continue
+            comments.append(comment)
+
+        comments.sort(key=lambda item: item.get("timestamp", ""))
+
+        if not self.state and notes and not self.bootstrap_process_existing:
+            newest = self.build_comment_from_note(notes[0])
+            if newest:
+                self.state["last_seen_note_timestamp"] = newest.get("timestamp", "")
+                self.state["processed_note_ids"] = [newest["id"]]
+                self.save_state()
+                print("Bootstrap complete: seeded MarketSharp notes cursor without processing historical notes.")
+            return []
+
+        return comments
+
+    @staticmethod
+    def get_comment_id(comment):
+        if not isinstance(comment, dict):
+            return ""
+        for key in ("id", "comment_id", "commentId"):
+            value = comment.get(key)
+            if value is not None:
+                return str(value)
+        return ""
+
+    def mark_comment_processed(self, comment):
+        comment_id = self.get_comment_id(comment)
+        if comment_id:
+            self.seen_comment_ids.add(comment_id)
+
+        if self.source == "marketsharp_notes":
+            processed = list(self.state.get("processed_note_ids", []))
+            if comment_id and comment_id not in processed:
+                processed.append(comment_id)
+            self.state["processed_note_ids"] = processed[-500:]
+            timestamp = comment.get("timestamp") or ""
+            if timestamp:
+                current = self.state.get("last_seen_note_timestamp", "")
+                if not current or timestamp > current:
+                    self.state["last_seen_note_timestamp"] = timestamp
+            self.save_state()
+
+    def _activity_recipient_limit_reached(self, recipient_count, source):
+        if not self.activity_notify_max_per_note:
+            return False
+        if self.activity_notify_max_per_note <= 0:
+            return False
+        if recipient_count <= self.activity_notify_max_per_note:
+            return False
+        print(
+            f"[{source}] MarketSharp Activity-create safety block: resolved {recipient_count} recipients, "
+            f"max allowed is {self.activity_notify_max_per_note}. Skipping activity creates."
+        )
+        return True
+
+    @staticmethod
+    def _activity_state_key(note_id, employee_id):
+        if not note_id or not employee_id:
+            return ""
+        return f"{note_id}:{employee_id}"
+
+    def _is_activity_processed(self, note_id, employee_id):
+        key = self._activity_state_key(note_id, employee_id)
+        processed = set(self.state.get("processed_activity_keys", []))
+        return bool(key and key in processed)
+
+    def _mark_activity_processed(self, note_id, employee_id):
+        key = self._activity_state_key(note_id, employee_id)
+        if not key:
+            return
+        processed = list(self.state.get("processed_activity_keys", []))
+        if key not in processed:
+            processed.append(key)
+        self.state["processed_activity_keys"] = processed[-2000:]
+        self.save_state()
+
+    def _resolve_activity_employee_id(self, username, recipient_email=None):
+        candidates = []
+        normalized = self._normalize_token(username)
+        if normalized:
+            candidates.append(normalized)
+            if normalized.startswith("email:"):
+                candidates.append(self._normalize_token(normalized.split(":", 1)[1]))
+
+        if isinstance(recipient_email, str) and recipient_email.strip():
+            email_key = recipient_email.strip().lower()
+            candidates.append(email_key)
+            local_part = email_key.split("@", 1)[0]
+            if local_part:
+                candidates.append(self._normalize_token(local_part))
+
+        seen = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            employee_id = self.activity_notify_employee_map.get(candidate)
+            if employee_id:
+                return employee_id
+        return None
+
+    def _build_activity_payload(self, username, employee_id, comment, job_info=None):
+        if not isinstance(job_info, dict):
+            return None
+
+        contact_id = str(job_info.get("contact_id") or "").strip()
+        note_id = str(job_info.get("note_id") or "").strip()
+        if not contact_id or contact_id == "\u2014" or not note_id or note_id == "\u2014":
+            return None
+
+        due_offset_minutes = self.activity_notify_due_offset_minutes
+        if due_offset_minutes is None:
+            due_offset_minutes = 30
+        due_date = datetime.now(timezone.utc) + timedelta(minutes=due_offset_minutes)
+        display_token = username.split(":", 1)[1] if isinstance(username, str) and username.startswith("email:") else username
+        notes = (
+            f"{self.activity_notify_notes_prefix} @{display_token} mentioned in note {note_id}\n\n"
+            f"{comment}"
+        )
+        payload = {
+            "contactId": contact_id,
+            "type": self.activity_notify_type,
+            "notes": notes,
+            "dueDate": due_date.isoformat().replace("+00:00", "Z"),
+            "assignToEmployeeId": employee_id,
+            "isActive": True,
+        }
+        if self.activity_notify_reminder_minutes is not None:
+            payload["reminderMinutes"] = self.activity_notify_reminder_minutes
+        if self.activity_notify_reference_id is not None:
+            payload["activityReferenceId"] = self.activity_notify_reference_id
+        if self.activity_notify_result_id is not None:
+            payload["activityResultId"] = self.activity_notify_result_id
+        if self.activity_notify_scheduled_by_employee_id:
+            payload["scheduledByEmployeeId"] = self.activity_notify_scheduled_by_employee_id
+        return payload
+
+    def _maybe_process_activity_notification(self, username, recipient_email, comment, job_info=None, source="api"):
+        if not self.activity_notify_enabled:
+            return
+        if not self.ms_service:
+            print(f"[{source}] Activity notify enabled but MarketSharp service is unavailable.")
+            return
+
+        employee_id = self._resolve_activity_employee_id(username, recipient_email=recipient_email)
+        if not employee_id:
+            print(f"[{source}] No mapped MarketSharp employee for '@{username}', skipping activity.")
+            return
+
+        note_id = ""
+        if isinstance(job_info, dict):
+            note_id = str(job_info.get("note_id") or "").strip()
+        if self._is_activity_processed(note_id, employee_id):
+            print(f"[{source}] Activity already created for note={note_id} employee={employee_id}; skipping duplicate.")
+            return
+
+        payload = self._build_activity_payload(username, employee_id, comment, job_info=job_info)
+        if not payload:
+            print(f"[{source}] Missing contact/note context for activity create; skipping.")
+            return
+
+        result = self.ms_service.create_activity(payload, dry_run=self.activity_notify_dry_run)
+        if self.activity_notify_dry_run:
+            print(f"[{source}] Activity dry run payload: {json.dumps(payload, sort_keys=True)}")
+            return
+
+        if result is None:
+            print(f"[{source}] Activity create failed for employee={employee_id} note={note_id}.")
+            return
+
+        self._mark_activity_processed(note_id, employee_id)
+        print(f"[{source}] Activity created for employee={employee_id} note={note_id}.")
+
+# Extract mentions from comment text using explicit @tokens by default.
+    def extract_mentions(self, comment):
+
+        """Extract recipient usernames from comment text.
+
+        Default behavior processes explicit @mentions only. Optional plain-text
+        inference can be enabled with COMMENT_WORKER_REQUIRE_EXPLICIT_MENTIONS=false.
+        """
+        pattern = r'(?<!\w)@([A-Za-z0-9]+)\b'
+        found = re.findall(pattern, comment or "")
+        # Normalize and dedupe while preserving mention order.
+        seen = set()
+        mentions = []
+        for raw_token in found:
+            token = self._normalize_token(raw_token)
+            if not token:
+                continue
+
+            # Group keywords only expand when explicitly mentioned with @.
+            group_recipients = sorted(self.group_alias_to_recipients.get(token, []))
+            if group_recipients:
+                for recipient in group_recipients:
+                    if recipient in seen:
+                        continue
+                    seen.add(recipient)
+                    mentions.append(recipient)
+                continue
+
+            key = token
+            if key in seen:
+                continue
+            seen.add(key)
+            mentions.append(key)
+
+        if not self.require_explicit_mentions:
+            # Optional fallback mode for environments that intentionally allow
+            # plain-text dictionary keys to infer recipients.
+            # Strip the leading [Author Name] tag our system prepends to notes
+            # (e.g. "[Brandon Riggin] comment text") so the author's own name
+            # is not mistaken for a mention recipient.
+            infer_text = re.sub(r'^\s*\[[^\]]*\]\s*', '', comment or '', count=1)
+            inferred = self.infer_mentions_from_plain_text(infer_text)
+            for username in inferred:
+                key = username.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                mentions.append(key)
+        return mentions
+
+    def infer_mentions_from_plain_text(self, comment):
+        """Infer usernames from plain text using the alias index.
+
+        This path is disabled by default in production safety mode.
+        """
+        tokens = re.findall(r"\b[A-Za-z0-9]{3,}\b", comment or "")
+        inferred = []
+        seen = set()
+        for token in tokens:
+            alias = token.strip().lower()
+
+            username = self.alias_to_username.get(alias)
+            if username:
+                if username in seen:
+                    continue
+                seen.add(username)
+                inferred.append(username)
+                continue
+
+            ambiguous = self.ambiguous_aliases.get(alias, [])
+            if not ambiguous:
+                continue
+
+            if self.ambiguous_alias_mode == "skip":
+                continue
+
+            # In "all" mode, notify all mapped users sharing that alias.
+            if self.ambiguous_alias_mode == "all":
+                for candidate in ambiguous:
+                    if candidate in seen:
+                        continue
+                    seen.add(candidate)
+                    inferred.append(candidate)
+                continue
+
+            # Fallback: deterministic first candidate if mode is unknown.
+            first = ambiguous[0]
+            if first not in seen:
+                seen.add(first)
+                inferred.append(first)
+        return inferred
+
+    def resolve_email_for_username(self, username):
+        """Resolve mention username to an email using the mapping file.
+
+        Resolution order:
+          1. Direct canonical username lookup (e.g. @briggin → briggin → email).
+          2. Unambiguous alias fallback (e.g. @riggin → briggin → email).
+             Ambiguous aliases live in ambiguous_aliases, not alias_to_username,
+             so they correctly return None — requiring @canonical for disambiguation.
+        """
+        if isinstance(username, str) and username.startswith("email:"):
+            email = username.split(":", 1)[1].strip().lower()
+            return email if "@" in email else None
+        key = (username or "").strip().lower()
+        # 1. Direct canonical lookup.
+        email = self.user_email_map.get(key)
+        if isinstance(email, str) and "@" in email:
+            return email
+        # 2. Unambiguous alias fallback.
+        canonical = self.alias_to_username.get(key)
+        if canonical:
+            result = self.user_email_map.get(canonical)
+            if isinstance(result, str) and "@" in result:
+                return result
+        return None
+
+    def process_comment_text(self, jcomment_text, job_info=None, send_email=True, source="api"):
+        """Parse @mentions and send/preview notifications for one comment body."""
+        if send_email and not self.has_email_api_config():
+            print(
+                f"[{source}] Email sending disabled: missing EMAIL_API_URL and auth token."
+            )
+            print(
+                f"[{source}] Use --email-api-url with --email-api-key or --email-api-query-token, or set them in .env."
+            )
+            return
+
+        mentions = self.extract_mentions(jcomment_text)
+        if not mentions:
+            print(f"[{source}] No @mentions found.")
+            return
+
+        if self.max_recipients_per_comment > 0 and len(mentions) > self.max_recipients_per_comment:
+            print(
+                f"[{source}] Mention safety block: resolved {len(mentions)} recipients, "
+                f"max allowed is {self.max_recipients_per_comment}. Skipping sends."
+            )
+            print(f"[{source}] Resolved recipients: {mentions}")
+            return
+        if self._activity_recipient_limit_reached(len(mentions), source):
+            return
+
+        notified_emails = set()
+        for username in mentions:
+            recipient_email = self.resolve_email_for_username(username)
+            display_name = username
+            if isinstance(username, str) and username.startswith("email:"):
+                display_name = username.split(":", 1)[1]
+            if not recipient_email:
+                print(f"[{source}] No mapped email for mentioned user '@{display_name}', skipping.")
+                continue
+
+            # Multiple usernames can map to the same mailbox (for example when
+            # ambiguous aliases fan out). Send one email per recipient inbox.
+            recipient_key = recipient_email.strip().lower()
+            if recipient_key in notified_emails:
+                print(
+                    f"[{source}] Recipient {recipient_email} already notified in this comment; "
+                    f"skipping duplicate alias '@{display_name}'."
+                )
+                continue
+            notified_emails.add(recipient_key)
+
+            if send_email:
+                self.send_email_notification(display_name, recipient_email, job_info, jcomment_text)
+            else:
+                print(
+                    f"[{source}] Dry run: would notify '@{display_name}' at {recipient_email} "
+                    f"for comment: {jcomment_text}"
+                )
+
+            self._maybe_process_activity_notification(
+                username,
+                recipient_email,
+                jcomment_text,
+                job_info=job_info,
+                source=source,
+            )
+       
+# Refactored build_html_body method for CommentWorker class
+# Enhanced with sleek, technical design aesthetic
+# Replace the existing build_html_body method (lines 1570-1783) with this version
+
+
+    def build_html_body(self, comment, job_info=None, recipient_name=None):
+        """Build a sleek, technical HTML mention-notification email."""
+        import html
+        import re
+
+        escaped = html.escape(comment or "")
+
+        def _highlight(match):
+            mention = html.escape(match.group(0))
+            return (
+                f'<span style="background:linear-gradient(135deg,rgba(199,140,42,0.2) 0%,rgba(199,140,42,0.1) 100%);'
+                f'color:#d4a041;font-weight:700;padding:2px 8px;border-radius:4px;'
+                f'font-family:monospace;border:1px solid rgba(199,140,42,0.3);">{mention}</span>'
+            )
+
+        highlighted = re.sub(r"(?<!\w)@[A-Za-z0-9]+\b", _highlight, escaped)
+
+        # Format timestamp for display.
+        ts_display = "—"
+        if isinstance(job_info, dict):
+            ts_raw = (job_info.get("timestamp") or "").strip()
+            if ts_raw:
+                ts_display = CommentWorker._format_timestamp_display(ts_raw)
+
+        # Build job details block with Figma-style card while preserving
+        # existing data fields from the legacy template.
+        job_block = ""
+        if isinstance(job_info, dict):
+            contact_id = html.escape(str(job_info.get("contact_id") or "—" or "\u2014"))
+            contact_url = (job_info.get("contact_url") or "").strip()
+            account_name = html.escape(str(job_info.get("account_name") or "").strip())
+            company_name = html.escape(str(job_info.get("company_name") or "").strip())
+            address_line = html.escape(str(job_info.get("address_line") or "").strip())
+            city_state_postal = html.escape(str(job_info.get("city_state_postal") or "").strip())
+            country = html.escape(str(job_info.get("country") or "").strip())
+            note_id = html.escape(str(job_info.get("note_id") or "—" or "\u2014"))
+            source_label = html.escape(str(job_info.get("source") or "MarketSharp"))
+            ts_cell = html.escape(ts_display)
+            location_parts = [part for part in [address_line, city_state_postal, country] if part]
+            location_label = html.escape(", ".join(location_parts)) if location_parts else "—"
+            title_label = account_name or company_name or (contact_id if contact_id != "—" else "Customer Account")
+            subtitle_label = f"NOTE-{note_id}" if note_id and note_id != "—" else "NOTE-UNKNOWN"
+            contact_cell = (
+                f'<a href="{html.escape(contact_url)}" '
+                f'style="color:#c78c2a;text-decoration:none;font-weight:600;font-family:monospace;'
+                f'border-bottom:1px solid rgba(199,140,42,0.3);">'
+                f'{account_name or contact_id}</a>'
+                if contact_url else (account_name or contact_id)
+            )
+
+            def _row(label, value_html):
+                return (
+                    '<tr>'
+                    f'<td style="padding:10px 20px;font-size:11px;color:#64748b;'
+                    f'font-family:monospace;font-weight:600;width:32%;vertical-align:top;">{label}:</td>'
+                    f'<td style="padding:10px 20px;font-size:13px;color:#cbd5e1;'
+                    f'font-weight:500;vertical-align:top;">{value_html}</td>'
+                    f'</tr>'
+                )
+
+            source_badge = (
+                '<span style="display:inline-block;background-color:rgba(34,197,94,0.15);'
+                'color:#86efac;font-size:11px;font-weight:700;padding:4px 10px;border-radius:4px;'
+                'font-family:monospace;border:1px solid rgba(34,197,94,0.3);">'
+                f'&#9679; {source_label.upper()}</span>'
+            )
+
+            row_items = [
+                ("ACCOUNT", contact_cell),
+                ("COMPANY", company_name or "—"),
+                ("LOCATION", location_label),
+                ("CONTACT ID", contact_id),
+                ("STATUS", source_badge),
+                ("TIMESTAMP", ts_cell),
+            ]
+
+            rows = ""
+            for label, value in row_items:
+                rows += _row(label, value)
+
+            job_block = (
+                '<div style="background:linear-gradient(135deg,rgba(199,140,42,0.08) 0%,rgba(199,140,42,0.03) 100%);'
+                'border:1px solid rgba(199,140,42,0.2);border-radius:8px;padding:24px;margin-bottom:32px;">'
+                '<div style="font-size:9px;color:#c78c2a;font-family:monospace;letter-spacing:1.5px;'
+                'margin-bottom:16px;text-transform:uppercase;font-weight:700;">&#9881; Job Details</div>'
+                f'<h3 style="margin:0 0 4px;font-size:18px;color:#f8fafc;font-weight:700;">{title_label}</h3>'
+                f'<div style="font-size:12px;color:#64748b;font-family:monospace;margin-bottom:16px;">{subtitle_label}</div>'
+                '<table width="100%" cellpadding="8" cellspacing="0">'
+                '<tbody>'
+                f'{rows}'
+                '</tbody>'
+                '</table>'
+                '</div>'
+            )
+
+        greeting = f"Hello {html.escape(recipient_name)}," if recipient_name else "Hello,"
+        ts_esc = html.escape(ts_display)
+        has_ts = bool(ts_display and ts_display != "—")
+        meta_line = (
+            'Marketsharp Tagger Client &nbsp;&183; &nbsp;$#183;&nbsp; Spicer API'
+            + (f' &nbsp;&#183;&nbsp; {ts_esc}' if has_ts else '')
+        )
+
+        # Enhanced metadata line with more technical formatting
+        note_id_short = str(job_info.get("note_id", "N/A"))[:8] if isinstance(job_info, dict) else "N/A"
+        source_short = str(job_info.get("source", "API"))[:15] if isinstance(job_info, dict) else "API"
+        meta_line = (
+            f'SOURCE: {html.escape(source_short)} &nbsp;&#183;&nbsp; '
+            f'NOTE: #{html.escape(note_id_short)} &nbsp;&#183;&nbsp; '
+            + (f'TIMESTAMP: {ts_esc}' if has_ts else 'TIMESTAMP: N/A')
+        )
+
+        # Modernized ASCII splash with cleaner, more technical aesthetic
+        splash_ascii = (
+            "\n" 
+            + html.escape(
+                """
+  █████████             ███                                █████████   ███████████  █████
+ ███░░░░░███           ░░░                                ███░░░░░███ ░░███░░░░░███░░███ 
+░███    ░░░  ████████  ████   ██████   ██████  ████████  ░███    ░███  ░███    ░███ ░███ 
+░░█████████ ░░███░░███░░███  ███░░███ ███░░███░░███░░███ ░███████████  ░██████████  ░███ 
+ ░░░░░░░░███ ░███ ░███ ░███ ░███ ░░░ ░███████  ░███ ░░░  ░███░░░░░███  ░███░░░░░░   ░███ 
+ ███    ░███ ░███ ░███ ░███ ░███  ███░███░░░   ░███      ░███    ░███  ░███         ░███ 
+░░█████████  ░███████  █████░░██████ ░░██████  █████     █████   █████ █████        █████
+ ░░░░░░░░░   ░███░░░  ░░░░░  ░░░░░░   ░░░░░░  ░░░░░     ░░░░░   ░░░░░ ░░░░░        ░░░░░ 
+             ░███                                                                        
+             █████                                                                       
+            ░░░░░                                                                        
+""".strip("\n")
+            )
+        )
+
+        splash_image_src = self.splash_image_url
+        if not splash_image_src and self.enable_data_uri_splash:
+            splash_image_src = self._get_splash_data_uri()
+
+        use_image_splash = self.splash_mode == "image" and bool(splash_image_src)
+        use_responsive_splash = (self.splash_mode == "ascii") and bool(splash_image_src)
+
+        if use_image_splash:
+            splash_src_escaped = html.escape(splash_image_src, quote=True)
+            splash_block = (
+                '<div style="margin:0 0 40px;border-radius:12px;overflow:hidden;min-height:200px;'
+                'width:100%;max-width:680px;'
+                'background:#0a0f1e;border:1px solid rgba(199,140,42,0.2);'
+                'box-shadow:0 4px 16px rgba(0,0,0,0.3);">'
+                f'<img src="{splash_src_escaped}" alt="Spicer MTS splash" '
+                'style="display:block;width:100%;height:100px;object-fit:cover;object-position:center;border:0;"/>'
+                '</div>'
+            )
+        elif use_responsive_splash:
+            splash_src_escaped = html.escape(splash_image_src, quote=True)
+            splash_block = (
+                '<div class="splash-ascii" style="margin:0 0 32px;border-radius:12px;overflow:hidden;'
+                'background:#0a0f1e;border:1px solid rgba(199,140,42,0.2);'
+                'box-shadow:0 8px 24px rgba(0,0,0,0.4);">'
+                '<div style="padding:24px 24px 16px;background:#0a0f1e;">'
+                f'<pre style="display:block;margin:0;color:#88942a;font-size:10px;line-height:1.35;'
+                'font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;white-space:pre;'
+                'letter-spacing:0.5px;-webkit-text-size-adjust:none;text-size-adjust:none;'
+                'mso-line-height-rule:exactly;">'
+                f'{splash_ascii}</pre>'
+                '</div>'
+                '<div style="padding:0 24px 16px;background:#0a0f1e;">'
+                '<table width="100%" cellpadding="0" cellspacing="0">'
+                '<tr>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:left;'
+                'letter-spacing:0.5px;">Spicer Bros. Admin Console</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:right;">'
+                'written by Ryan Ellis</td>'
+                '</tr>'
+                '</table>'
+                '</div>'
+                '<div style="height:2px;background:linear-gradient(90deg,'
+                'rgba(136,148,42,0.3) 0%,#88942a 50%,rgba(136,148,42,0.3) 100%);"></div>'
+                '</div>'
+                '<div class="splash-mobile" style="display:none;max-height:0;overflow:hidden;'
+                'margin:0 0 32px;border-radius:12px;overflow:hidden;background:#0a0f1e;'
+                'border:1px solid rgba(199,140,42,0.2);box-shadow:0 8px 24px rgba(0,0,0,0.4);">'
+                f'<img src="{splash_src_escaped}" alt="Spicer MTS splash" '
+                'style="display:block;width:100%;height:auto;border:0;"/>'
+                '<div style="padding:10px 14px 12px;background:#0a0f1e;">'
+                '<table width="100%" cellpadding="0" cellspacing="0">'
+                '<tr>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:left;'
+                'letter-spacing:0.5px;">Spicer Bros. Admin Console</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:right;">'
+                'written by Ryan Ellis</td>'
+                '</tr>'
+                '</table>'
+                '</div>'
+                '<div style="height:2px;background:linear-gradient(90deg,'
+                'rgba(136,148,42,0.3) 0%,#88942a 50%,rgba(136,148,42,0.3) 100%);"></div>'
+                '</div>'
+            )
+        else:
+            splash_block = (
+                '<div style="margin:0 0 32px;border-radius:12px;overflow:hidden;'
+                'background:#0a0f1e;border:1px solid rgba(199,140,42,0.2);'
+                'box-shadow:0 8px 24px rgba(0,0,0,0.4);">'
+                '<div style="padding:24px 24px 16px;background:#0a0f1e;">'
+                f'<pre style="display:block;margin:0;color:#88942a;font-size:10px;line-height:1.35;'
+                'font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;white-space:pre;'
+                'letter-spacing:0.5px;-webkit-text-size-adjust:none;text-size-adjust:none;'
+                'mso-line-height-rule:exactly;">'
+                f'{splash_ascii}</pre>'
+                '</div>'
+                '<div style="padding:0 24px 16px;background:#0a0f1e;">'
+                '<table width="100%" cellpadding="0" cellspacing="0">'
+                '<tr>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:left;'
+                'letter-spacing:0.5px;">Spicer Bros. Admin Console</td>'
+                '<td style="color:#5a6324;font-family:monospace;font-size:9px;text-align:right;">'
+                'written by Ryan Ellis</td>'
+                '</tr>'
+                '</table>'
+                '</div>'
+                '<div style="height:2px;background:linear-gradient(90deg,'
+                'rgba(136,148,42,0.3) 0%,#88942a 50%,rgba(136,148,42,0.3) 100%);"></div>'
+                '</div>'
+            )
+
+        return (
+            '<!DOCTYPE html><html lang="en">'
+            '<head><meta charset="UTF-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+            '<meta name="x-apple-disable-message-reformatting">'
+            '<style type="text/css">'
+            'body{-webkit-text-size-adjust:100%;text-size-adjust:100%;}'
+            '.splash-mobile{display:none;max-height:0;overflow:hidden;}'
+            '@media only screen and (max-width:680px){'
+            '.email-shell{padding:24px 14px !important;}'
+            '.email-card{padding:24px 18px !important;}'
+            '.splash-ascii{display:none !important;max-height:0 !important;overflow:hidden !important;mso-hide:all !important;}'
+            '.splash-mobile{display:block !important;max-height:none !important;overflow:visible !important;}'
+            '.splash-mobile img{display:block !important;width:100% !important;height:auto !important;}'
+            '}'
+            '</style>'
+            '<title>Mention Alert</title></head>'
+            '<body style="margin:0;padding:0;background-color:#0a0f1e;'
+            "font-family:'Inter','Segoe UI',sans-serif;\">"
+
+            # Enhanced header with gradient and better spacing
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="background:linear-gradient(135deg,#0a0f1e 0%,#15233d 50%,#0d1629 100%);'
+            'border-bottom:1px solid rgba(199,140,42,0.2);">'
+            '<tr><td style="padding:24px 40px 12px;">'
+            '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+            '<td><span style="color:#f8fafc;font-size:20px;font-weight:900;letter-spacing:4px;'
+            'text-shadow:0 2px 8px rgba(199,140,42,0.3);">SPICER BROS.</span>'
+            '<span style="color:#d4a041;font-size:10px;letter-spacing:2px;font-weight:600;'
+            'text-transform:uppercase;margin-left:8px;">Construction</span></td>'
+            '<td align="right" valign="middle">'
+            # Keep the alert badge single-line so Gmail mobile does not break it awkwardly.
+            '<span style="display:inline-block;white-space:nowrap;background:linear-gradient(135deg,#c78c2a 0%,#d4a041 100%);'
+            'color:#0a0f1e;font-size:9px;font-weight:800;line-height:1;padding:6px 12px;border-radius:6px;'
+            'letter-spacing:1.5px;font-family:monospace;box-shadow:0 4px 12px rgba(199,140,42,0.4);'
+            'border:1px solid rgba(255,255,255,0.2);vertical-align:middle;min-width:max-content;' 
+            'text-align:center;">&#9889; TAG ALERT</span></td>'
+            '</tr></table></td></tr>'
+            '<tr><td style="padding:0 40px 16px;">'
+            '<div style="background-color:rgba(199,140,42,0.08);border:1px solid rgba(199,140,42,0.2);'
+            'border-radius:6px;padding:10px 14px;">'
+            '<span style="color:#94a3b8;font-size:10px;letter-spacing:0.5px;font-family:monospace;">'
+            f'{meta_line}</span></div></td></tr>'
+            '<tr><td style="height:2px;background:linear-gradient(90deg,'
+            'transparent 0%,#c78c2a 50%,transparent 100%);"></td></tr>'
+            '</table>'
+
+            # Enhanced content area with dark theme
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="background-color:#0a0f1e;">'
+            '<tr><td class="email-shell" style="padding:40px 20px;">'
+            '<table align="center" cellpadding="0" cellspacing="0" '
+            'style="max-width:680px;width:100%;">'
+            '<tr><td class="email-card" style="background-color:#0f1729;border-radius:12px;padding:40px;'
+            'border:1px solid rgba(148,163,184,0.1);box-shadow:0 8px 32px rgba(0,0,0,0.4);">'
+
+            # Splash
+            f'{splash_block}'
+
+            # Status badge
+            '<div style="display:inline-block;background-color:rgba(199,140,42,0.15);'
+            'border:1px solid rgba(199,140,42,0.3);border-radius:6px;padding:6px 12px;margin-bottom:20px;">'
+            '<span style="font-size:10px;color:#d4a041;letter-spacing:1.5px;'
+            'font-family:monospace;font-weight:700;">&#128204; MENTION NOTIFICATION</span></div>'
+
+            # Title
+            '<h2 style="margin:0 0 12px;font-size:26px;color:#f8fafc;font-weight:800;'
+            'letter-spacing:-0.5px;line-height:1.3;">New Mention Activity</h2>'
+
+            # Subtitle
+            f'<p style="margin:0 0 32px;font-size:15px;color:#94a3b8;line-height:1.6;">'
+            f'{greeting} A new mention was detected in a MarketSharp note.</p>'
+
+            # Note content box with enhanced styling
+            '<div style="background-color:rgba(15,23,41,0.6);border:1px solid rgba(199,140,42,0.3);'
+            'border-left:4px solid #c78c2a;border-radius:8px;padding:24px;margin-bottom:32px;'
+            'box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">'
+            '<div style="font-size:9px;color:#64748b;font-family:monospace;letter-spacing:1.5px;'
+            'margin-bottom:12px;text-transform:uppercase;font-weight:600;">&#9654; Note Content</div>'
+            f'<p style="margin:0;font-size:15px;line-height:1.8;color:#e2e8f0;">{highlighted}</p>'
+            '</div>'
+
+            # Job info block
+            f'{job_block}'
+
+            # Divider
+            '<div style="height:1px;background:linear-gradient(90deg,transparent 0%,'
+            'rgba(148,163,184,0.2) 50%,transparent 100%);margin:32px 0;"></div>'
+
+            # Footer text
+            '<p style="margin:0;font-size:12px;color:#64748b;text-align:center;line-height:1.8;">'
+            'You received this because you were @mentioned in a note.<br>'
+            '<a href="mailto:ryan@spicerbros.com" style="color:#c78c2a;text-decoration:none;'
+            'font-weight:600;border-bottom:1px solid rgba(199,140,42,0.3);">Contact Admin</a></p>'
+
+            '</td></tr></table></td></tr></table>'
+
+            # Enhanced footer
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="background:linear-gradient(135deg,#0a0f1e 0%,#15233d 50%,#0d1629 100%);'
+            'border-top:1px solid rgba(199,140,42,0.2);">'
+            '<tr><td style="padding:20px 40px;text-align:center;">'
+            '<span style="color:#475569;font-size:10px;font-family:monospace;letter-spacing:0.5px;">'
+            'Spicer Ops Tagger &nbsp;&#183;&nbsp; Automated System &nbsp;&#183;&nbsp; '
+            'Do not reply to this email</span></td></tr></table>'
+
+            '</body></html>'
+        )
+
+#  def build_html_body(self, comment, job_info=None, recipient_name=None):
+# Build a branded HTML mention-notification email.
+#         escaped = html.escape(comment or "")
+
+#         def _highlight(match):
+#             mention = html.escape(match.group(0))
+#             return (
+#                 f'<span style="background-color:#dbeafe;color:#1d4ed8;font-weight:700;'
+#                 f'padding:1px 5px;border-radius:3px;font-family:monospace;">{mention}</span>'
+#             )
+
+#         highlighted = re.sub(r"(?<!\w)@[A-Za-z0-9]+\b", _highlight, escaped)
+
+#         # Format timestamp for display.
+#         ts_display = "\u2014"
+#         if isinstance(job_info, dict):
+#             ts_raw = (job_info.get("timestamp") or "").strip()
+#             if ts_raw:
+#                 ts_display = CommentWorker._format_timestamp_display(ts_raw)
+
+#         # Build job details table block.
+#         job_block = ""
+#         if isinstance(job_info, dict):
+#             contact_id = html.escape(str(job_info.get("contact_id") or "\u2014"))
+#             contact_url = (job_info.get("contact_url") or "").strip()
+#             account_name = html.escape(str(job_info.get("account_name") or "").strip())
+#             company_name = html.escape(str(job_info.get("company_name") or "").strip())
+#             address_line = html.escape(str(job_info.get("address_line") or "").strip())
+#             city_state_postal = html.escape(str(job_info.get("city_state_postal") or "").strip())
+#             country = html.escape(str(job_info.get("country") or "").strip())
+#             note_id = html.escape(str(job_info.get("note_id") or "\u2014"))
+#             source_label = html.escape(str(job_info.get("source") or "MarketSharp"))
+#             ts_cell = html.escape(ts_display)
+#             contact_cell = (
+#                 f'<a href="{html.escape(contact_url)}" '
+#                 f'style="color:#0ea5e9;text-decoration:none;font-family:monospace;">'
+#                 f'{account_name or contact_id}</a>'
+#                 if contact_url else (account_name or contact_id)
+#             )
+
+#             def _row(label, value_html, first=False):
+#                 sep = "" if first else "border-top:1px solid #e2e8f0;"
+#                 return (
+#                     f'<tr>'
+#                     f'<td style="padding:8px 16px;width:38%;font-size:12px;color:#64748b;'
+#                     f'font-family:monospace;{sep}">{label}</td>'
+#                     f'<td style="padding:8px 16px;font-size:12px;color:#1e293b;'
+#                     f'font-family:monospace;{sep}">{value_html}</td>'
+#                     f'</tr>'
+#                 )
+
+#             row_items = []
+#             if account_name:
+#                 row_items.append(("Account", contact_cell))
+#             else:
+#                 row_items.append(("Contact", contact_cell))
+#             if company_name:
+#                 row_items.append(("Company", company_name))
+#             if address_line:
+#                 row_items.append(("Address", address_line))
+#             if city_state_postal:
+#                 row_items.append(("Location", city_state_postal))
+#             if country:
+#                 row_items.append(("Country", country))
+#             if account_name:
+#                 row_items.append(("Contact ID", contact_id))
+#             row_items.extend([
+#                 ("Note ID", note_id),
+#                 ("Timestamp", ts_cell),
+#                 ("Source", source_label),
+#             ])
+
+#             rows = ""
+#             for idx, (label, value) in enumerate(row_items):
+#                 rows += _row(label, value, first=(idx == 0))
+#             job_block = (
+#                 '<table width="100%" cellpadding="0" cellspacing="0" '
+#                 'style="background-color:#f8f4ea;border-radius:6px;margin-bottom:24px;">'
+#                 '<tr><td colspan="2" style="padding:8px 16px;background-color:#e2e8f0;'
+#                 'border-radius:6px 6px 0 0;">'
+#                 '<span style="font-size:11px;font-weight:700;color:#6c4a12;letter-spacing:1px;'
+#                 'font-family:monospace;text-transform:uppercase;">&#128196; Job Details</span>'
+#                 '</td></tr>'
+#                 f'{rows}'
+#                 '</table>'
+#             )
+
+#         greeting = f"Hi {html.escape(recipient_name)}," if recipient_name else "Hi,"
+#         ts_esc = html.escape(ts_display)
+#         has_ts = bool(ts_display and ts_display != "\u2014")
+#         meta_line = (
+#             'MarketSharp Tagger Client &nbsp;&#183;&nbsp; Spicer API'
+#             + (f' &nbsp;&#183;&nbsp; {ts_esc}' if has_ts else '')
+#         )
+#         splash_ascii = (
+#             " \n"
+#             + html.escape(
+#                 """
+#   / ===_|      @                        ////////  ////////  ////////  ////////////////////
+#  | (___   ___  _  ___   ____     ___    ///  ///  ///  ///    ///     //////  ///  ///////
+#   \\___ \\ / _ \\| |/ __\\ / __ \\|^^//^\\\\   ///  ///  ///  ///    ///     ////////////////////
+#   ____) | |_| | | (___|  ^__/|  /       ////////  ////////    ///     ///  /////////  ////
+#  |_____/|  __/\\__,___/ \\____/|__|       ///  ///  ///         ///     //// //////// //////
+#         | |                             ///  ///  ///         ///     /////________///////
+#         |_|                             ///  ///  ///       ///////   ////////////////////
+# """.strip("\n")
+#             )
+#         )
+#         splash_image_src = self.splash_image_url
+#         if not splash_image_src and self.enable_data_uri_splash:
+#             splash_image_src = self._get_splash_data_uri()
+
+#         use_image_splash = self.splash_mode == "image" and bool(splash_image_src)
+
+#         if use_image_splash:
+#             splash_src_escaped = html.escape(splash_image_src, quote=True)
+#             splash_block = (
+#                 '<table width="100%" cellpadding="0" cellspacing="0" '
+#                 'style="margin:0 0 28px;border-radius:12px;overflow:hidden;background:#081326;'
+#                 'box-shadow:inset 0 0 0 1px #11213a;">'
+#                 '<tr><td style="padding:0;background:#081326;">'
+#                 f'<img src="{splash_src_escaped}" alt="Spicer MTS splash" '
+#                 'style="display:block;width:100%;height:auto;border:0;outline:none;text-decoration:none;"/>'
+#                 '</td></tr>'
+#                 '</table>'
+#             )
+#         else:
+#             splash_block = (
+#                 '<table width="100%" cellpadding="0" cellspacing="0" '
+#                 'style="margin:0 0 28px;border-radius:12px;overflow:visible;background:#081326;'
+#                 'box-shadow:inset 0 0 0 1px #11213a;">'
+#                 '<tr><td style="height:8px;line-height:8px;font-size:8px;background:#081326;">&nbsp;</td></tr>'
+#                 '<tr><td style="padding:18px 18px 8px;background:#081326;">'
+#                 f'<pre style="display:block;margin:0;padding-top:0;color:#88942a;font-size:11px;line-height:1.28;'
+#                 'font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;white-space:pre;'
+#                 'letter-spacing:0.15px;">'
+#                 f'{splash_ascii}'
+#                 '</pre>'
+#                 '<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">'
+#                 '<tr>'
+#                 '<td style="color:#88942a;font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;'
+#                 'font-size:11px;text-align:left;">Spicer Bros. Admin Console</td>'
+#                 '<td style="color:#88942a;font-family:Menlo,Monaco,Consolas,\'Courier New\',monospace;'
+#                 'font-size:11px;text-align:right;padding-right:58px;">written by Ryan Ellis</td>'
+#                 '</tr>'
+#                 '</table>'
+#                 '</td></tr>'
+#                 '<tr><td style="height:2px;background:linear-gradient(90deg,#66731f 0%,#88942a 50%,#66731f 100%);"></td></tr>'
+#                 '</table>'
+#             )
+#         return (
+#             '<!DOCTYPE html><html lang="en">'
+#             '<head><meta charset="UTF-8">'
+#             '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+#             '<title>Mention Alert</title></head>'
+#             '<body style="margin:0;padding:0;background-color:#eceff3;'
+#             "font-family:'Segoe UI',Arial,sans-serif;\">"
+#             # header bar
+#             '<table width="100%" cellpadding="0" cellspacing="0" '
+#             'style="background:linear-gradient(90deg,#0d1324 0%,#131f3f 52%,#0f1730 100%);">'
+#             '<tr><td style="padding:16px 32px 8px;">'
+#             '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+#             '<td><span style="color:#f1f5f9;font-size:18px;font-weight:800;letter-spacing:3px;">'
+#             'SPICER BROS.</span>'
+#             '<span style="color:#c78c2a;font-size:11px;margin-left:4px;letter-spacing:1px;">'
+#             'CONSTRUCTION</span></td>'
+#             '<td align="right" valign="top" style="padding-top:2px;">'
+#             '<span style="background-color:#c78c2a;color:#2a1a05;font-size:10px;font-weight:700;'
+#             'padding:4px 10px;border-radius:4px;letter-spacing:1.5px;font-family:monospace;">'
+#             'TAG ALERT</span></td>'
+#             '</tr></table></td></tr>'
+#             '<tr><td style="padding:0 32px 10px;">'
+#             '<span style="color:#d4a041;font-size:11px;font-family:monospace;font-weight:600;">'
+#             f'{meta_line}</span></td></tr>'
+#             '<tr><td style="height:3px;background-color:#c78c2a;"></td></tr>'
+#             '</table>'
+#             # content
+#             '<table width="100%" cellpadding="0" cellspacing="0" '
+#             'style="background-color:#eceff3;">'
+#             '<tr><td style="padding:32px 16px;">'
+#             '<table align="center" cellpadding="0" cellspacing="0" '
+#             'style="max-width:860px;width:100%;">'
+#             '<tr><td style="background-color:#ffffff;border-radius:8px;padding:32px;'
+#             'box-shadow:0 1px 4px rgba(0,0,0,0.08);">'
+#             f'{splash_block}'
+#             '<p style="margin:0 0 4px;font-size:11px;color:#9f9374;letter-spacing:1.5px;'
+#             'font-family:monospace;text-transform:uppercase;">MENTION NOTIFICATION</p>'
+#             '<h2 style="margin:0 0 8px;font-size:22px;color:#0f172a;font-weight:700;">'
+#             'New Mention Activity</h2>'
+#             f'<p style="margin:0 0 28px;font-size:14px;color:#64748b;">'
+#             f'{greeting} A new mention was detected in a MarketSharp note.</p>'
+#             '<div style="background-color:#f8fafc;border-left:4px solid #c78c2a;'
+#             'border-radius:0 6px 6px 0;padding:16px 20px;margin-bottom:24px;">'
+#             '<p style="margin:0 0 8px;font-size:10px;color:#94a3b8;font-family:monospace;'
+#             'letter-spacing:1px;text-transform:uppercase;">Note Content</p>'
+#             f'<p style="margin:0;font-size:15px;line-height:1.75;color:#1e293b;">{highlighted}</p>'
+#             '</div>'
+#             f'{job_block}'
+#             '<p style="margin:0;font-size:12px;color:#94a3b8;text-align:center;line-height:1.6;">'
+#             'You received this because you were @mentioned in a note.<br>'
+#             '<a href="mailto:ryan@spicerbros.com" '
+#             'style="color:#c78c2a;text-decoration:none;">Contact Admin</a>'
+#             '</p>'
+#             '</td></tr></table></td></tr></table>'
+#             # footer bar
+#             '<table width="100%" cellpadding="0" cellspacing="0" '
+#             'style="background:linear-gradient(90deg,#0d1324 0%,#131f3f 52%,#0f1730 100%);">'
+#             '<tr><td style="padding:14px 32px;text-align:center;">'
+#             '<span style="color:#64748b;font-size:10px;font-family:monospace;">'
+#             'Spicer Ops Tagger &nbsp;&#183;&nbsp; Automated System'
+#             ' &nbsp;&#183;&nbsp; Do not reply to this email</span>'
+#             '</td></tr></table>'
+#             '</body></html>'
+#         )
+
+    def send_email_notification(self, username, recipient_email, job_info, comment):
+        """Send a mention notification email to the named recipient."""
+        display_name = self.user_display_names.get((username or "").strip().lower(), username)
+        html_body = self.build_html_body(comment, job_info=job_info, recipient_name=display_name)
+
+        # Plain-text fallback.
+        contact_id_plain = "\u2014"
+        account_name_plain = ""
+        company_name_plain = ""
+        address_line_plain = ""
+        city_state_postal_plain = ""
+        country_plain = ""
+        note_id_plain = "\u2014"
+        ts_plain = "\u2014"
+        source_plain = "MarketSharp Notes"
+        if isinstance(job_info, dict):
+            contact_id_plain = str(job_info.get("contact_id") or "\u2014")
+            account_name_plain = str(job_info.get("account_name") or "").strip()
+            company_name_plain = str(job_info.get("company_name") or "").strip()
+            address_line_plain = str(job_info.get("address_line") or "").strip()
+            city_state_postal_plain = str(job_info.get("city_state_postal") or "").strip()
+            country_plain = str(job_info.get("country") or "").strip()
+            note_id_plain = str(job_info.get("note_id") or "\u2014")
+            source_plain = str(job_info.get("source") or source_plain)
+            ts_raw = (job_info.get("timestamp") or "").strip()
+            if ts_raw:
+                ts_plain = self._format_timestamp_display(ts_raw)
+
+        plain_lines = []
+        if account_name_plain:
+            plain_lines.append(f"  Account    : {account_name_plain}")
+        if company_name_plain:
+            plain_lines.append(f"  Company    : {company_name_plain}")
+        if address_line_plain:
+            plain_lines.append(f"  Address    : {address_line_plain}")
+        if city_state_postal_plain:
+            plain_lines.append(f"  Location   : {city_state_postal_plain}")
+        if country_plain:
+            plain_lines.append(f"  Country    : {country_plain}")
+        plain_lines.append(f"  Contact ID : {contact_id_plain}")
+        plain_lines.append(f"  Note ID    : {note_id_plain}")
+        plain_lines.append(f"  Timestamp  : {ts_plain}")
+        plain_lines.append(f"  Source     : {source_plain}")
+        details_text = "\n".join(plain_lines)
+
+        text_body = (
+            "[SPICER API \u2014 MENTION ALERT]\n"
+            "Automated system notification \u2014 MarketSharp Worker Comment service\n"
+            f"\nHi {display_name},\n"
+            "\nSomeone mentioned you in a MarketSharp note:\n\n"
+            f"  {comment}\n\n"
+            "Job Details:\n"
+            f"{details_text}\n\n"
+            "---\n"
+            "Spicer API \u00b7 Automated System \u00b7 Do not reply\n"
+        )
+
+        email_data = {
+            "to": recipient_email,
+            "subject": "[Spicer API] New Comment Mention \u2014 MarketSharp Note",
+            "body": text_body,
+            "html_body": html_body,
+            "htmlBody": html_body,  # Apps Script relay uses camelCase
+            # Compatibility keys for relay handlers that use different field names.
+            "text": text_body,
+            "text_body": text_body,
+            "plain": text_body,
+            "html": html_body,
+            "html_content": html_body,
+        }
+        try:
+            email_api_url, headers = self._build_email_endpoint()
+            response = requests.post(
+                email_api_url,
+                headers=headers,
+                json=email_data,
+                timeout=self.http_timeout_seconds,
+            )
+            response.raise_for_status()
+
+            # Apps Script may return HTTP 200 even when the payload reports an app-level error.
+            relay_json = {}
+            try:
+                relay_json = response.json()
+            except ValueError:
+                snippet = (response.text or "")[:300].replace("\n", " ")
+                content_type = response.headers.get("content-type", "")
+                redirects = len(response.history)
+                print(
+                    f"Relay response for {recipient_email} was not JSON "
+                    f"(status {response.status_code}, content-type '{content_type}', "
+                    f"redirects {redirects}, final-url {response.url}). Body preview: {snippet}"
+                )
+                return
+
+            if relay_json.get("ok") is False:
+                print(
+                    f"Relay reported failure for {recipient_email}: "
+                    f"{relay_json.get('error', 'unknown error')}"
+                )
+                return
+
+            if relay_json.get("ok") is not True:
+                print(
+                    f"Relay response missing explicit ok=true for {recipient_email}: {relay_json}"
+                )
+                return
+
+            if "usedHtml" not in relay_json:
+                print(
+                    f"Relay response did not report usedHtml for {recipient_email}. "
+                    "If inbox is plaintext-only, update Apps Script relay to pass htmlBody to MailApp.sendEmail options."
+                )
+
+            print(f"Relay response for {recipient_email}: {relay_json}")
+            print(f"Email sent to {username} at {recipient_email}")
+            # Handle any exceptions that occur during the API request
+        except requests.RequestException as e:
+            print(f"Error sending email to {username} at {recipient_email}: {e}")
+
+    def run(self, run_once=False):
+        """Run the comment worker to fetch comments and send notifications."""
+        # Continuously fetch comments and process them in an infinite loop
+        while True:
+            if self.source == "marketsharp_notes":
+                comments = self.fetch_marketsharp_note_comments()
+            else:
+                comments = self.fetch_comments()
+            for comment in comments:
+                comment_id = self.get_comment_id(comment)
+                if comment_id and comment_id in self.seen_comment_ids:
+                    continue
+
+                comment_text = comment.get('text', '')
+                job_info = comment.get('job_info', 'N/A')
+
+                self.process_comment_text(comment_text, job_info=job_info, send_email=True, source="api")
+
+                self.mark_comment_processed(comment)
+
+            if run_once:
+                print("Run-once mode complete.")
+                return
+
+            time.sleep(self.poll_seconds)
+
+
+def build_test_message(base_message, tags):
+    """Build a single message string for test mode."""
+    parts = []
+    existing_mentions = set()
+
+    if base_message:
+        normalized_message = base_message.strip()
+        parts.append(normalized_message)
+        existing_mentions = {
+            match.lower() for match in re.findall(r"(?<!\w)@([A-Za-z0-9]+)\b", normalized_message)
+        }
+
+    appended_tags = set()
+    for tag in tags:
+        normalized = (tag or "").strip().lstrip("@").lower()
+        if not normalized:
+            continue
+        if normalized in existing_mentions or normalized in appended_tags:
+            continue
+        parts.append(f"@{normalized}")
+        appended_tags.add(normalized)
+
+    return " ".join(parts).strip()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Comment worker for @username mention notifications.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["listen", "test"],
+        default=None,
+        help="Optional explicit mode. If omitted, test mode is inferred when --message, --tag, or --send-test-emails is used.",
+    )
+    parser.add_argument(
+        "--message",
+        default="",
+        help="Comment text for test mode (can include @mentions).",
+    )
+    parser.add_argument(
+        "--tag",
+        action="append",
+        default=[],
+        help="Username to tag in test mode; repeat flag for multiple users. Using this flag implies test mode.",
+    )
+    parser.add_argument(
+        "--tag-all-mapped-users",
+        action="store_true",
+        help="In test mode, append every username from the loaded mapping as @mentions.",
+    )
+    parser.add_argument(
+        "--send-test-emails",
+        action="store_true",
+        help="In test mode, actually call the email API. Default is dry-run preview only. Using this flag implies test mode.",
+    )
+    parser.add_argument(
+        "--email-api-url",
+        default="",
+        help="Optional override for EMAIL_API_URL.",
+    )
+    parser.add_argument(
+        "--email-api-key",
+        default="",
+        help="Optional override for EMAIL_API_KEY.",
+    )
+    parser.add_argument(
+        "--email-api-query-token",
+        default="",
+        help="Optional override for EMAIL_API_QUERY_TOKEN (appended as ?token=... on EMAIL_API_URL).",
+    )
+    parser.add_argument(
+        "--poll-seconds",
+        default="",
+        help="Optional listen-mode poll interval override (seconds).",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="In listen mode, fetch/process comments once and exit.",
+    )
+    parser.add_argument(
+        "--source",
+        choices=["api_comments", "marketsharp_notes"],
+        default="",
+        help="Listener source: local/API /comments feed or direct MarketSharp OData Notes polling.",
+    )
+    parser.add_argument(
+        "--bootstrap-process-existing",
+        action="store_true",
+        help="On first marketsharp_notes run, process existing fetched notes instead of seeding cursor and skipping history.",
+    )
+    return parser.parse_args()
+
+
+def determine_mode(args):
+    """Infer the execution mode from explicit mode or provided test inputs."""
+    if args.mode:
+        return args.mode
+    if args.message or args.tag or args.send_test_emails:
+        return "test"
+    return "listen"
+
+
+def main():
+    args = parse_args()
+    worker = CommentWorker(
+        email_api_url_override=(args.email_api_url or None),
+        email_api_key_override=(args.email_api_key or None),
+        email_api_query_token_override=(args.email_api_query_token or None),
+        poll_seconds_override=(args.poll_seconds or None),
+        source_override=(args.source or None),
+        bootstrap_process_existing_override=(True if args.bootstrap_process_existing else None),
+    )
+    mode = determine_mode(args)
+
+    if mode == "listen":
+        worker.validate_listen_config()
+        worker.run(run_once=args.once)
+        return
+
+    test_tags = list(args.tag)
+    if args.tag_all_mapped_users:
+        test_tags.extend(sorted(worker.user_email_map.keys()))
+
+    message = build_test_message(args.message, test_tags)
+    if not message:
+        raise ValueError("Test mode requires --message and/or at least one --tag.")
+
+    if args.send_test_emails:
+        worker.validate_email_config()
+
+    worker.process_comment_text(
+        message,
+        send_email=args.send_test_emails,
+        source="test",
+    )
+
+
+if __name__ == "__main__":
+    main()
+    

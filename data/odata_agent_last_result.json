@@ -1,0 +1,228 @@
+{
+  "url": "https://api4.marketsharpm.com/WcfDataService.svc/Contacts()",
+  "params": {
+    "$top": "1"
+  },
+  "rows": [
+    {
+      "__metadata": {
+        "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')",
+        "type": "MSharpModel.Contact"
+      },
+      "id": "0000b96c-5b12-43a2-b8eb-c300fafb4f17",
+      "companyId": "4453",
+      "firstName": "Joanne & Joe",
+      "lastName": "Conaway",
+      "middleInitial": null,
+      "title": "",
+      "incomeCode": "",
+      "ageCode": "",
+      "structureAgeCode": "",
+      "reference": null,
+      "businessName": "",
+      "contactPhoneId": "440dcc8a-1d1b-452e-a4ac-5195007f398d",
+      "primaryAddressId": "b7c23e0d-80b9-45fa-9deb-c7e21d452b98",
+      "website1": "",
+      "website2": "",
+      "website3": "",
+      "email1": "joanneconaway@hotmail.com",
+      "email1CanMail": false,
+      "email2": "",
+      "email2CanMail": false,
+      "email3": "",
+      "email3CanMail": false,
+      "isTagged": null,
+      "structureValueCode": "",
+      "doNotMail": false,
+      "yearHomeBuilt": "",
+      "maritalStatus": "",
+      "lengthOfResidence": "",
+      "styleOfHome": "",
+      "mailMergeName": null,
+      "source": null,
+      "creationDate": "/Date(1761831905043)/",
+      "qbSyncDate": "/Date(1761935122000)/",
+      "qbId": "8000EEF3-1761935122",
+      "isActive": true,
+      "lastUpdate": "/Date(1767717741103)/",
+      "hasDNCPhone": false,
+      "hasDNEEmail": false,
+      "qbEditSequence": "",
+      "qbSyncData": false,
+      "qbName": "Conaway, Joanne & Joe",
+      "createdDate": "/Date(1761828305150)/",
+      "ContactType": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/ContactType"
+        }
+      },
+      "ContactPhone": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/ContactPhone"
+        }
+      },
+      "Job": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Job"
+        }
+      },
+      "Inquiry": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Inquiry"
+        }
+      },
+      "Address": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Address"
+        }
+      },
+      "AdditionalContact": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/AdditionalContact"
+        }
+      },
+      "Company": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Company"
+        }
+      },
+      "CustomField": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/CustomField"
+        }
+      },
+      "Activity": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Activity"
+        }
+      },
+      "FutureInterest": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/FutureInterest"
+        }
+      },
+      "Note": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Note"
+        }
+      },
+      "C800ResponseLead": {
+        "__deferred": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/C800ResponseLead"
+        }
+      }
+    }
+  ],
+  "raw": {
+    "d": [
+      {
+        "__metadata": {
+          "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')",
+          "type": "MSharpModel.Contact"
+        },
+        "id": "0000b96c-5b12-43a2-b8eb-c300fafb4f17",
+        "companyId": "4453",
+        "firstName": "Joanne & Joe",
+        "lastName": "Conaway",
+        "middleInitial": null,
+        "title": "",
+        "incomeCode": "",
+        "ageCode": "",
+        "structureAgeCode": "",
+        "reference": null,
+        "businessName": "",
+        "contactPhoneId": "440dcc8a-1d1b-452e-a4ac-5195007f398d",
+        "primaryAddressId": "b7c23e0d-80b9-45fa-9deb-c7e21d452b98",
+        "website1": "",
+        "website2": "",
+        "website3": "",
+        "email1": "joanneconaway@hotmail.com",
+        "email1CanMail": false,
+        "email2": "",
+        "email2CanMail": false,
+        "email3": "",
+        "email3CanMail": false,
+        "isTagged": null,
+        "structureValueCode": "",
+        "doNotMail": false,
+        "yearHomeBuilt": "",
+        "maritalStatus": "",
+        "lengthOfResidence": "",
+        "styleOfHome": "",
+        "mailMergeName": null,
+        "source": null,
+        "creationDate": "/Date(1761831905043)/",
+        "qbSyncDate": "/Date(1761935122000)/",
+        "qbId": "8000EEF3-1761935122",
+        "isActive": true,
+        "lastUpdate": "/Date(1767717741103)/",
+        "hasDNCPhone": false,
+        "hasDNEEmail": false,
+        "qbEditSequence": "",
+        "qbSyncData": false,
+        "qbName": "Conaway, Joanne & Joe",
+        "createdDate": "/Date(1761828305150)/",
+        "ContactType": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/ContactType"
+          }
+        },
+        "ContactPhone": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/ContactPhone"
+          }
+        },
+        "Job": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Job"
+          }
+        },
+        "Inquiry": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Inquiry"
+          }
+        },
+        "Address": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Address"
+          }
+        },
+        "AdditionalContact": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/AdditionalContact"
+          }
+        },
+        "Company": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Company"
+          }
+        },
+        "CustomField": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/CustomField"
+          }
+        },
+        "Activity": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Activity"
+          }
+        },
+        "FutureInterest": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/FutureInterest"
+          }
+        },
+        "Note": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/Note"
+          }
+        },
+        "C800ResponseLead": {
+          "__deferred": {
+            "uri": "http://api4.marketsharpm.com/WcfDataService.svc/Contacts('0000b96c-5b12-43a2-b8eb-c300fafb4f17')/C800ResponseLead"
+          }
+        }
+      }
+    ]
+  }
+}

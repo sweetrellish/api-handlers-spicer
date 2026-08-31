@@ -1,0 +1,18 @@
+[Unit]
+Description=MarketSharp Queue Worker (Event-Driven)
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=rellis
+WorkingDirectory=/home/rellis/spicer
+Environment=PYTHONPATH=/home/rellis/spicer/scripts:/home/rellis/spicer/src:/home/rellis/spicer
+Environment=MARKETSHARP_UI_HEADLESS=true
+# Use verified canonical @username text (MarketSharp-safe, no markdown wrappers).
+Environment=MARKETSHARP_NOTE_MENTION_STYLE=plain
+ExecStart=/usr/bin/bash /home/rellis/spicer/src/run_queue_worker.sh --event-driven
+
+[Install]
+WantedBy=multi-user.target

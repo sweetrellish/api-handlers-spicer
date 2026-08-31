@@ -73,6 +73,65 @@ def _resolve_db_path(env_key, default_candidates):
 
     return os.path.abspath(str(default_candidates[0]))
 
+
+def _audit_db_score(path):
+    """Return a freshness score tuple for an audit DB path.
+
+    Higher tuple values indicate a more recently active audit file.
+    """
+    abs_path = os.path.abspath(str(path))
+    if not os.path.exists(abs_path):
+        return (0, 0, 0, 0)
+
+    try:
+        mtime = int(os.path.getmtime(abs_path))
+    except OSError:
+        mtime = 0
+
+    try:
+        with sqlite3.connect(abs_path) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='posted_comments_audit'"
+            )
+            if not cur.fetchone():
+                return (0, 0, 0, mtime)
+            row = cur.execute(
+                "SELECT COALESCE(MAX(posted_at),0), COALESCE(MAX(id),0), COUNT(*) FROM posted_comments_audit"
+            ).fetchone()
+            max_posted_at, max_id, row_count = row if row else (0, 0, 0)
+            return (int(max_posted_at or 0), int(max_id or 0), int(row_count or 0), mtime)
+    except Exception:
+        return (0, 0, 0, mtime)
+
+
+def _resolve_audit_db_path(default_candidates):
+    """Resolve audit DB path, preferring the freshest existing candidate."""
+    explicit = os.getenv("AUDIT_DB_PATH", "").strip()
+    if explicit:
+        explicit_path = os.path.abspath(explicit)
+        if os.path.exists(explicit_path):
+            return explicit_path
+
+        existing = [
+            os.path.abspath(str(candidate))
+            for candidate in default_candidates
+            if os.path.exists(os.path.abspath(str(candidate)))
+        ]
+        if existing:
+            return max(existing, key=_audit_db_score)
+        return explicit_path
+
+    existing = [
+        os.path.abspath(str(candidate))
+        for candidate in default_candidates
+        if os.path.exists(os.path.abspath(str(candidate)))
+    ]
+    if existing:
+        return max(existing, key=_audit_db_score)
+
+    return os.path.abspath(str(default_candidates[0]))
+
 # Mapping file is optional and may not exist until manual overrides are needed, 
 # so we check for an explicit env var first and then look for existing files without requiring one to be present.
 def _resolve_mapping_file_path():
@@ -105,8 +164,7 @@ DB_PATH = _resolve_db_path(
     ],
 )
 # Audit DB is separate from the main queue DB to allow it to be more persistent and less volatile.
-AUDIT_DB = _resolve_db_path(
-    "AUDIT_DB_PATH",
+AUDIT_DB = _resolve_audit_db_path(
     [
         ROOT / "posted_comments_audit.db",
         ROOT / "data" / "posted_comments_audit.db",
@@ -122,6 +180,11 @@ CANONICAL_QUEUE_DB = os.path.abspath(str(ROOT / "data" / "pending_comments.db"))
 CANONICAL_IDEMPOTENCY_DB = os.path.abspath(str(ROOT / "data" / "cc_webhook_dedupe.db"))
 CANONICAL_AUDIT_DB = os.path.abspath(str(ROOT / "posted_comments_audit.db"))
 BACKUP_DIR = ROOT / "backups"
+DEPENDENCY_REPORT_SCRIPT = ROOT / "list-dependencies.sh"
+DEPENDENCY_REPORT_FILE = ROOT / "spicer_dependencies.txt"
+WORKER_CREDENTIAL_ROTATION_SCRIPT = SCRIPTS_DIR / "rotate_worker_credentials.sh"
+TAGGER_RECOVERY_WORKBENCH_SCRIPT = SCRIPTS_DIR / "tagger_recovery_workbench.py"
+ODATA_AGENT_SCRIPT = SCRIPTS_DIR / "odata_agent.py"
 
 QUEUE_DB_CANDIDATES = [
     CANONICAL_QUEUE_DB,
@@ -236,14 +299,17 @@ def render_menu_options(options, indent="  ", key_style=cyan):
 
 # ── splash ─────────────────────────────────────────────────────────────────────
 SPLASH = r"""
-   _____            
-  / ===_|      @                        ////////  ////////  ////////  ////////////////////
- | (___   ___  _  ___   ____     ___    ///  ///  ///  ///    ///     //////  ///  /////// 
-  \___ \ / _ \| |/ __\ / __ \|^^//^\\   ///  ///  ///  ///    ///     //////////////////// 
-  ____) | |_| | | (___|  ^__/|  /       ////////  ////////    ///     ///  /////////  ////
- |_____/|  __/\__,___/ \____/|__|       ///  ///  ///         ///     //// //////// //////
-        | |                             ///  ///  ///         ///     /////________///////
-        |_|                             ///  ///  ///       ///////   //////////////////// 
+  █████████             ███                                █████████   ███████████  █████
+ ███░░░░░███           ░░░                                ███░░░░░███ ░░███░░░░░███░░███ 
+░███    ░░░  ████████  ████   ██████   ██████  ████████  ░███    ░███  ░███    ░███ ░███ 
+░░█████████ ░░███░░███░░███  ███░░███ ███░░███░░███░░███ ░███████████  ░██████████  ░███ 
+ ░░░░░░░░███ ░███ ░███ ░███ ░███ ░░░ ░███████  ░███ ░░░  ░███░░░░░███  ░███░░░░░░   ░███ 
+ ███    ░███ ░███ ░███ ░███ ░███  ███░███░░░   ░███      ░███    ░███  ░███         ░███ 
+░░█████████  ░███████  █████░░██████ ░░██████  █████     █████   █████ █████        █████
+ ░░░░░░░░░   ░███░░░  ░░░░░  ░░░░░░   ░░░░░░  ░░░░░     ░░░░░   ░░░░░ ░░░░░        ░░░░░ 
+             ░███                                                                        
+             █████                                                                       
+            ░░░░░                                                                        
 Spicer Bros. Admin Console                                            written by Ryan Ellis
 """
 
@@ -1086,10 +1152,11 @@ def _audit_recent():
         print(dim("  No audit DB found yet."))
         pause()
         return
+    print(f"  Audit DB in use: {dim(AUDIT_DB)}")
     ensure_audit_table()
     with db_connect(AUDIT_DB) as conn:
         rows = conn.execute(
-            "SELECT * FROM posted_comments_audit ORDER BY posted_at DESC LIMIT 50"
+            "SELECT * FROM posted_comments_audit ORDER BY COALESCE(posted_at, 0) DESC, id DESC LIMIT 50"
         ).fetchall()
     if not rows:
         print(dim("  Audit log is empty."))
@@ -1109,7 +1176,8 @@ def _audit_search():
     ensure_audit_table()
     with db_connect(AUDIT_DB) as conn:
         rows = conn.execute(
-            "SELECT * FROM posted_comments_audit WHERE customer_name LIKE ? ORDER BY posted_at DESC LIMIT 50",
+            "SELECT * FROM posted_comments_audit WHERE customer_name LIKE ? "
+            "ORDER BY COALESCE(posted_at, 0) DESC, id DESC LIMIT 50",
             (f"%{term}%",),
         ).fetchall()
     section(f"Audit results for '{term}'")
@@ -1123,7 +1191,9 @@ def _audit_export_csv():
     out_path = ROOT / f"audit_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     ensure_audit_table()
     with db_connect(AUDIT_DB) as conn:
-        rows = conn.execute("SELECT * FROM posted_comments_audit ORDER BY posted_at ASC").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM posted_comments_audit ORDER BY COALESCE(posted_at, 0) ASC, id ASC"
+        ).fetchall()
     if not rows:
         print(dim("  Audit log is empty."))
         pause()
@@ -1357,6 +1427,31 @@ def _service_status(service):
     except Exception:
         return "unknown"
 
+
+def _timer_status(timer_unit):
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", timer_unit],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def _display_service_state(service, status):
+    # true_fail_checker runs as a timer-triggered one-shot, so inactive is expected between runs.
+    if service == "true_fail_checker.service" and status == "inactive":
+        timer_state = _timer_status("true_fail_checker.timer")
+        if timer_state == "active":
+            return green("timer-idle (expected)")
+        return yellow("inactive (timer unknown)")
+
+    col = green if status == "active" else (yellow if status in ("activating", "deactivating") else red)
+    return col(status)
+
 def menu_diagnostics():
     while True:
         section("Diagnostics & Service Control")
@@ -1366,8 +1461,8 @@ def menu_diagnostics():
         hr("─", 70)
         for svc in ALL_SERVICES:
             status = _service_status(svc)
-            col = green if status == "active" else (yellow if status in ("activating", "deactivating") else red)
-            print(f"  {svc:<48} {col(status)}")
+            display_state = _display_service_state(svc, status)
+            print(f"  {svc:<48} {display_state}")
         print()
         opts = [
             ("1", "Restart queue workers", "Restart queue and event worker services"),
@@ -1376,6 +1471,8 @@ def menu_diagnostics():
             ("4", "Check local health endpoint", "Call local /health and print status"),
             ("5", "Show env config summary", "Print key runtime environment settings"),
             ("6", "MarketSharp mention worker ops check", "Run packaged mention-worker health script"),
+            ("7", "Generate dependency map", "Run list-dependencies.sh and write spicer_dependencies.txt"),
+            ("8", "Worker credential rotation assistant", "Update worker login creds and run post-change checks"),
             ("b", "Back", "Return to the previous menu"),
         ]
         render_menu_options(opts)
@@ -1392,6 +1489,285 @@ def menu_diagnostics():
             _show_env()
         elif choice == "6":
             _marketsharp_comment_worker_ops_check()
+        elif choice == "7":
+            _generate_dependency_report_from_menu()
+        elif choice == "8":
+            _run_worker_credential_rotation_assistant()
+        elif choice == "b":
+            return
+
+
+def _run_worker_credential_rotation_assistant():
+    section("Worker Credential Rotation Assistant")
+    script_path = WORKER_CREDENTIAL_ROTATION_SCRIPT
+    if not script_path.exists():
+        print(red(f"  Missing script: {script_path}"))
+        pause()
+        return
+
+    print(dim(f"  Launching: {script_path}"))
+    print(dim("  Follow prompts to update credentials and run post-change checks."))
+    print()
+
+    try:
+        r = subprocess.run(["bash", str(script_path)], cwd=str(ROOT))
+        if r.returncode == 0:
+            print(green("\n  ✓ Rotation assistant completed."))
+        else:
+            print(yellow(f"\n  Rotation assistant exited with status {r.returncode}."))
+    except Exception as e:
+        print(red(f"  Failed to run rotation assistant: {e}"))
+    pause()
+
+
+def _parse_dependency_report_summary(report_path):
+    summary = {
+        "total": None,
+        "priority": None,
+        "unreferenced": None,
+    }
+    if not os.path.exists(report_path):
+        return summary
+
+    try:
+        with open(report_path, "r", encoding="utf-8", errors="replace") as f:
+            for _ in range(40):
+                line = f.readline()
+                if not line:
+                    break
+                text = line.strip()
+                if text.startswith("Total Python files scanned:"):
+                    summary["total"] = text.split(":", 1)[1].strip()
+                elif text.startswith("Priority files (used by other Python files):"):
+                    summary["priority"] = text.split(":", 1)[1].strip()
+                elif text.startswith("Unreferenced Python files:"):
+                    summary["unreferenced"] = text.split(":", 1)[1].strip()
+    except Exception:
+        return summary
+
+    return summary
+
+
+def _run_dependency_report(output_path):
+    cmd = ["bash", str(DEPENDENCY_REPORT_SCRIPT), str(ROOT), output_path]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    except Exception as e:
+        return False, f"Dependency scan failed: {e}"
+
+    output = ((r.stdout or "") + ("\n" + r.stderr if r.stderr else "")).strip()
+    if r.returncode != 0:
+        message = output or f"Dependency scan failed (exit {r.returncode})."
+        return False, message
+    return True, output
+
+
+def _print_dependency_report_summary(output_path):
+    summary = _parse_dependency_report_summary(output_path)
+    print(green("\n  ✓ Dependency report generated."))
+    print(dim(f"  Report: {output_path}"))
+    if summary["total"] is not None:
+        print(f"  Python files scanned: {bold(summary['total'])}")
+    if summary["priority"] is not None:
+        print(f"  Priority (referenced) files: {bold(summary['priority'])}")
+    if summary["unreferenced"] is not None:
+        print(f"  Unreferenced files: {bold(summary['unreferenced'])}")
+
+
+def _parse_dependency_report_entries(report_path):
+    entries = []
+    current = None
+    mode = ""
+
+    with open(report_path, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.rstrip("\n")
+            text = line.strip()
+
+            if text.startswith("FILE: "):
+                if current:
+                    entries.append(current)
+                current = {
+                    "file": text.split("FILE: ", 1)[1].strip(),
+                    "deps_py": [],
+                    "deps_file": [],
+                    "warnings": [],
+                    "used_in": [],
+                }
+                mode = ""
+                continue
+
+            if current is None:
+                continue
+
+            if text.startswith("DEPENDENCIES:"):
+                mode = "deps"
+                continue
+            if text.startswith("FOOTNOTE - USED IN:"):
+                mode = "used"
+                continue
+            if not text.startswith("- "):
+                continue
+
+            item = text[2:].strip()
+            if mode == "deps":
+                if item.startswith("[py] "):
+                    current["deps_py"].append(item[5:].strip())
+                elif item.startswith("[file] "):
+                    current["deps_file"].append(item[7:].strip())
+                elif item.startswith("[warning] "):
+                    current["warnings"].append(item[10:].strip())
+            elif mode == "used":
+                if item != "(not referenced by other scanned Python files)":
+                    current["used_in"].append(item)
+
+    if current:
+        entries.append(current)
+    return entries
+
+
+def _preview_list(items, limit=3):
+    if not items:
+        return dim("none")
+    if limit is None:
+        return ", ".join(items)
+    shown = items[:limit]
+    suffix = ""
+    if len(items) > limit:
+        suffix = f", +{len(items) - limit} more"
+    return ", ".join(shown) + suffix
+
+
+def _render_dependency_layout(output_path, compact=False):
+    title = "Dependency Layout View (Compact)" if compact else "Dependency Layout View"
+    section(title)
+    if not os.path.exists(output_path):
+        print(red(f"  Report not found: {output_path}"))
+        print(dim("  Generate the dependency report first."))
+        pause()
+        return
+
+    try:
+        entries = _parse_dependency_report_entries(output_path)
+    except Exception as e:
+        print(red(f"  Could not parse report: {e}"))
+        pause()
+        return
+
+    if not entries:
+        print(yellow("  Report appears empty; regenerate and try again."))
+        pause()
+        return
+
+    referenced = [e for e in entries if e["used_in"]]
+    unreferenced = [e for e in entries if not e["used_in"]]
+    hubs = sorted(referenced, key=lambda e: len(e["used_in"]), reverse=True)[:10]
+
+    print(f"  Report source: {dim(output_path)}")
+    print(f"  Files: {bold(str(len(entries)))}  |  Priority: {bold(str(len(referenced)))}  |  Unreferenced: {bold(str(len(unreferenced)))}")
+    print()
+
+    print(bold("  Top Dependency Hubs (most reused):"))
+    if hubs:
+        for idx, item in enumerate(hubs, 1):
+            dep_count = len(item["deps_py"]) + len(item["deps_file"])
+            print(f"   {idx:>2}. {cyan(item['file'])}")
+            print(f"       used by {bold(str(len(item['used_in'])))} files | outgoing refs {bold(str(dep_count))}")
+    else:
+        print(dim("    none"))
+
+    if compact:
+        print()
+        print(bold("  Priority Graph (compact lanes):"))
+        if referenced:
+            for item in referenced[:20]:
+                upstream = len(item["used_in"])
+                downstream = len(item["deps_py"]) + len(item["deps_file"])
+                left = "←" + str(upstream)
+                right = str(downstream) + "→"
+                print(f"   {left:>4}  {green(item['file'])}  {right:<4}")
+        else:
+            print(dim("    no referenced files found"))
+
+        print()
+        print(dim("  Legend: ← incoming (used in count) | → outgoing dependency count"))
+        print(dim("  Tip: switch to full layout for per-file dependency previews."))
+    else:
+        print()
+        print(bold("  Priority Dependency Lanes:"))
+        for item in referenced[:12]:
+            print(f"   ● {green(item['file'])}")
+            print(f"      ├─ local py: {_preview_list(item['deps_py'], limit=None)}")
+            print(f"      ├─ files/config: {_preview_list(item['deps_file'], limit=None)}")
+            print(f"      └─ used in: {_preview_list(item['used_in'], limit=None)}")
+
+        if not referenced:
+            print(dim("    no referenced files found"))
+
+        if unreferenced:
+            print()
+            print(bold("  Unreferenced File Pool (sample):"))
+            for item in unreferenced[:15]:
+                print(f"    - {item['file']}")
+            if len(unreferenced) > 15:
+                print(dim(f"    ... +{len(unreferenced) - 15} more"))
+
+    pause()
+
+
+def _generate_dependency_report_from_menu():
+    script_path = DEPENDENCY_REPORT_SCRIPT
+    if not script_path.exists():
+        section("Dependency Map Report")
+        print(red(f"  Missing script: {script_path}"))
+        pause()
+        return
+
+    output_path = str(DEPENDENCY_REPORT_FILE)
+    auto_layout_mode = "full"
+
+    while True:
+        section("Dependency Map Report")
+        print(f"  Current output path: {dim(output_path)}")
+        print(f"  Auto-open layout mode: {bold(auto_layout_mode)}")
+        print()
+        opts = [
+            ("1", "Generate / refresh report", "Run dependency scan, then open visual layout"),
+            ("2", "View full layout", "Show detailed readable dependency map"),
+            ("3", "View compact layout", "Show graph-only high-signal summary view"),
+            ("4", "Change output path", "Set a custom report path for this menu session"),
+            ("5", "Set auto-open mode", "Choose full or compact layout after generation"),
+            ("b", "Back", "Return to diagnostics menu"),
+        ]
+        render_menu_options(opts)
+        choice = input("\n  > ").strip().lower()
+
+        if choice == "1":
+            print(dim("\n  Running dependency scan..."))
+            ok, message = _run_dependency_report(output_path)
+            if not ok:
+                print(red(f"  {message}"))
+                pause()
+                continue
+            if message:
+                print(message)
+            _print_dependency_report_summary(output_path)
+            _render_dependency_layout(output_path, compact=(auto_layout_mode == "compact"))
+        elif choice == "2":
+            _render_dependency_layout(output_path)
+        elif choice == "3":
+            _render_dependency_layout(output_path, compact=True)
+        elif choice == "4":
+            custom = input(f"  Output path [{output_path}]: ").strip()
+            if custom:
+                output_path = custom
+        elif choice == "5":
+            mode_choice = input("  Auto-open mode [full/compact] (current: " + auto_layout_mode + "): ").strip().lower()
+            if mode_choice in ("full", "compact"):
+                auto_layout_mode = mode_choice
+            elif mode_choice:
+                print(yellow("  Invalid mode. Choose 'full' or 'compact'."))
+                pause()
         elif choice == "b":
             return
 
@@ -1640,6 +2016,325 @@ def menu_recover_missed_mentions():
     except Exception as e:
         print(red(f"  Failed to run mention recovery: {e}"))
     pause()
+
+
+def _run_script_with_runtime(script_path, script_args):
+    # Prefer the project venv for consistency with existing admin tooling.
+    _main_python = ROOT / ".venv" / "bin" / "python3"
+    _tagger_python = ROOT / "tagger" / ".venv" / "bin" / "python"
+    if _main_python.exists():
+        _python = str(_main_python)
+    elif _tagger_python.exists():
+        _python = str(_tagger_python)
+    else:
+        _python = sys.executable
+
+    env = os.environ.copy()
+    pythonpath_parts = [str(ROOT), str(ROOT / "src"), str(ROOT / "tagger"), str(SCRIPTS_DIR)]
+    existing = env.get("PYTHONPATH", "")
+    if existing:
+        pythonpath_parts.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+
+    code = subprocess.run(
+        [_python, str(script_path), *script_args],
+        cwd=str(ROOT),
+        env=env,
+        check=False,
+    ).returncode
+    return code
+
+
+def menu_tagger_recovery_workbench():
+    while True:
+        section("Tagger Recovery Workbench")
+        script_path = TAGGER_RECOVERY_WORKBENCH_SCRIPT
+        if not script_path.exists():
+            print(red(f"  Missing script: {script_path}"))
+            pause()
+            return
+
+        opts = [
+            ("1", "Discover candidates", "Find note revisions in a time window and queue recovery rows"),
+            ("2", "List recovery queue", "Show recovery queue by status"),
+            ("3", "Inspect queue item", "Print full details for one queue row"),
+            ("4", "Edit queue item text", "Update working text and recompute parsed mentions"),
+            ("5", "Requeue queue item", "Set one row back to pending"),
+            ("6", "Apply recovery", "Dry-run by default; explicit apply to send"),
+            ("7", "Timeline view", "Show merged posted audit and recovery actions"),
+            ("8", "Timeline export", "Export merged timeline to JSON or CSV"),
+            ("b", "Back", "Return to the previous menu"),
+        ]
+        render_menu_options(opts)
+        choice = input("\n  > ").strip().lower()
+
+        if choice == "b":
+            return
+
+        if choice == "1":
+            raw_hours = input("  Lookback hours [24]: ").strip() or "24"
+            args = ["discover", "--hours", raw_hours]
+            since = input("  Optional since ISO8601 [blank to skip]: ").strip()
+            until = input("  Optional until ISO8601 [blank to skip]: ").strip()
+            if since:
+                args.extend(["--since", since])
+            if until:
+                args.extend(["--until", until])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Discovery completed.") if code == 0 else yellow(f"\n  Discovery exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "2":
+            statuses = input("  Status filter [pending,processing,sent,skipped,true_fail]: ").strip()
+            limit = input("  Limit [200]: ").strip() or "200"
+            args = ["list", "--limit", limit]
+            if statuses:
+                args.extend(["--status", statuses])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Listed recovery queue.") if code == 0 else yellow(f"\n  List exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "3":
+            queue_id = input("  Queue ID: ").strip()
+            if not queue_id.isdigit():
+                print(yellow("  Invalid queue ID."))
+                pause()
+                continue
+            print()
+            code = _run_script_with_runtime(script_path, ["inspect", "--id", queue_id])
+            print(green("\n  ✓ Inspect complete.") if code == 0 else yellow(f"\n  Inspect exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "4":
+            queue_id = input("  Queue ID: ").strip()
+            if not queue_id.isdigit():
+                print(yellow("  Invalid queue ID."))
+                pause()
+                continue
+            text = input("  New working text: ").strip()
+            if not text:
+                print(yellow("  No text entered."))
+                pause()
+                continue
+            print()
+            code = _run_script_with_runtime(script_path, ["edit", "--id", queue_id, "--text", text])
+            print(green("\n  ✓ Edit complete.") if code == 0 else yellow(f"\n  Edit exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "5":
+            queue_id = input("  Queue ID: ").strip()
+            if not queue_id.isdigit():
+                print(yellow("  Invalid queue ID."))
+                pause()
+                continue
+            print()
+            code = _run_script_with_runtime(script_path, ["requeue", "--id", queue_id])
+            print(green("\n  ✓ Requeue complete.") if code == 0 else yellow(f"\n  Requeue exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "6":
+            queue_id = input("  Optional queue ID [blank = pending batch]: ").strip()
+            limit = input("  Batch limit [50]: ").strip() or "50"
+            statuses = input("  Status filter [pending]: ").strip() or "pending"
+            mode = input("  Mode: dry-run or apply [dry-run]: ").strip().lower() or "dry-run"
+
+            args = ["apply", "--limit", limit, "--status", statuses]
+            if queue_id:
+                if not queue_id.isdigit():
+                    print(yellow("  Invalid queue ID."))
+                    pause()
+                    continue
+                args.extend(["--id", queue_id])
+            if mode == "apply":
+                args.extend(["--apply", "--yes"])
+
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Apply flow complete.") if code == 0 else yellow(f"\n  Apply exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "7":
+            since = input("  Since ISO8601 (e.g. 2026-08-04T12:00:00Z): ").strip()
+            until = input("  Until ISO8601 (e.g. 2026-08-04T14:00:00Z): ").strip()
+            if not since or not until:
+                print(yellow("  Since and until are required."))
+                pause()
+                continue
+            print()
+            code = _run_script_with_runtime(script_path, ["timeline", "--since", since, "--until", until])
+            print(green("\n  ✓ Timeline complete.") if code == 0 else yellow(f"\n  Timeline exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "8":
+            since = input("  Since ISO8601 (e.g. 2026-08-04T12:00:00Z): ").strip()
+            until = input("  Until ISO8601 (e.g. 2026-08-04T14:00:00Z): ").strip()
+            out_format = input("  Format [json/csv] (default json): ").strip().lower() or "json"
+            out_path = input("  Optional output path [blank=auto]: ").strip()
+            if not since or not until:
+                print(yellow("  Since and until are required."))
+                pause()
+                continue
+            args = ["export", "--since", since, "--until", until, "--format", out_format]
+            if out_path:
+                args.extend(["--output", out_path])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Export complete.") if code == 0 else yellow(f"\n  Export exited with status {code}."))
+            pause()
+            continue
+
+        print(yellow("  Invalid choice."))
+        pause()
+
+
+def menu_odata_agent():
+    while True:
+        section("OData Agent")
+        script_path = ODATA_AGENT_SCRIPT
+        if not script_path.exists():
+            print(red(f"  Missing script: {script_path}"))
+            pause()
+            return
+
+        opts = [
+            ("1", "Connection check", "Validate OData auth and fetch a minimal sample"),
+            ("2", "Endpoint catalog", "Show available OData agent endpoint shortcuts"),
+            ("3", "Browse entity", "Read Notes, Contacts(), or Activities with filters"),
+            ("4", "Custom query", "Run controlled custom path + params query"),
+            ("5", "Save preset", "Save a named query preset"),
+            ("6", "Run preset", "Execute a saved query preset"),
+            ("7", "List presets", "Show available presets"),
+            ("8", "Export last result", "Export last result set to JSON/CSV"),
+            ("b", "Back", "Return to the previous menu"),
+        ]
+        render_menu_options(opts)
+        choice = input("\n  > ").strip().lower()
+
+        if choice == "b":
+            return
+
+        if choice == "1":
+            print()
+            code = _run_script_with_runtime(script_path, ["check"])
+            print(green("\n  ✓ Connection check complete.") if code == 0 else yellow(f"\n  Check exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "2":
+            print()
+            code = _run_script_with_runtime(script_path, ["catalog"])
+            print(green("\n  ✓ Catalog shown.") if code == 0 else yellow(f"\n  Catalog exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "3":
+            entity = input("  Entity [Notes/Contacts()/Activities]: ").strip() or "Notes"
+            top = input("  Top [25]: ").strip() or "25"
+            filter_expr = input("  Optional $filter: ").strip()
+            orderby = input("  Optional $orderby: ").strip()
+            select_expr = input("  Optional $select: ").strip()
+            args = ["browse", "--entity", entity, "--top", top]
+            if filter_expr:
+                args.extend(["--filter", filter_expr])
+            if orderby:
+                args.extend(["--orderby", orderby])
+            if select_expr:
+                args.extend(["--select", select_expr])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Browse complete.") if code == 0 else yellow(f"\n  Browse exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "4":
+            path = input("  Query path (e.g. Notes or Contacts()): ").strip()
+            if not path:
+                print(yellow("  Path is required."))
+                pause()
+                continue
+            top = input("  Top [25]: ").strip() or "25"
+            print("  Enter params as key=value, one per line. Blank line to finish.")
+            params = []
+            while True:
+                pair = input("    param: ").strip()
+                if not pair:
+                    break
+                params.append(pair)
+            args = ["query", "--path", path, "--top", top]
+            for pair in params:
+                args.extend(["--param", pair])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Query complete.") if code == 0 else yellow(f"\n  Query exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "5":
+            name = input("  Preset name: ").strip()
+            path = input("  Query path: ").strip()
+            top = input("  Top [25]: ").strip() or "25"
+            if not name or not path:
+                print(yellow("  Name and path are required."))
+                pause()
+                continue
+            print("  Enter params as key=value, one per line. Blank line to finish.")
+            params = []
+            while True:
+                pair = input("    param: ").strip()
+                if not pair:
+                    break
+                params.append(pair)
+            args = ["preset-save", "--name", name, "--path", path, "--top", top]
+            for pair in params:
+                args.extend(["--param", pair])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Preset saved.") if code == 0 else yellow(f"\n  Preset save exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "6":
+            name = input("  Preset name: ").strip()
+            if not name:
+                print(yellow("  Preset name is required."))
+                pause()
+                continue
+            print()
+            code = _run_script_with_runtime(script_path, ["preset-run", "--name", name])
+            print(green("\n  ✓ Preset run complete.") if code == 0 else yellow(f"\n  Preset run exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "7":
+            print()
+            code = _run_script_with_runtime(script_path, ["preset-list"])
+            print(green("\n  ✓ Preset list shown.") if code == 0 else yellow(f"\n  Preset list exited with status {code}."))
+            pause()
+            continue
+
+        if choice == "8":
+            out_format = input("  Format [json/csv] (default json): ").strip().lower() or "json"
+            out_path = input("  Optional output path [blank=auto]: ").strip()
+            args = ["export", "--format", out_format]
+            if out_path:
+                args.extend(["--output", out_path])
+            print()
+            code = _run_script_with_runtime(script_path, args)
+            print(green("\n  ✓ Export complete.") if code == 0 else yellow(f"\n  Export exited with status {code}."))
+            pause()
+            continue
+
+        print(yellow("  Invalid choice."))
+        pause()
 
 
 def _send_test_webhook():
@@ -2355,6 +3050,7 @@ def menu_marketsharp_tagging_api():
             ("6", "Contact Mapping", "Manage project/contact URL mapping overrides"),
             ("7", "Duplicate Check", "Scan queue DB for duplicate event IDs and texts"),
             ("8", "Tagger Mention Recovery", "Replay tagger @mention emails for missed MarketSharp notes (dry-run by default)"),
+            ("9", "Tagger Recovery Workbench", "Revision-aware recovery queue, edit/requeue/apply, and timeline export"),
             ("b", "Back", "Return to the main category menu"),
         ]
         render_menu_options(opts)
@@ -2375,8 +3071,14 @@ def menu_marketsharp_tagging_api():
             menu_check_duplicates()
         elif choice == "8":
             menu_recover_missed_mentions()
+        elif choice == "9":
+            menu_tagger_recovery_workbench()
         elif choice == "b":
             return
+
+
+def menu_odata_agent_category():
+    menu_odata_agent()
 
 
 def menu_google_click_ad_reporting():
@@ -2431,6 +3133,7 @@ CATEGORY_ITEMS = [
     ("3", "Google Click Ad Reporting", "GCLID conversion exports and reporting audits", menu_google_click_ad_reporting),
     ("4", "Database Administration", "DB backup, integrity, consolidation, and audit access", menu_database_category),
     ("5", "System Maintenance", "Service diagnostics, health checks, and predeploy validation", menu_system_maintenance),
+    ("6", "OData Agent", "Read-first MarketSharp OData visibility, query, presets, and exports", menu_odata_agent_category),
     ("q", "Quit", "Exit the admin console", None),
 ]
 
@@ -2465,6 +3168,12 @@ def main():
     parser.add_argument("--status", action="store_true", help="Print queue counts and exit")
     parser.add_argument("--db-status", action="store_true", help="Print DB path and integrity summary")
     parser.add_argument("--predeploy-check", action="store_true", help="Run DB predeploy checks and exit non-zero on errors")
+    parser.add_argument(
+        "--dependency-report",
+        nargs="?",
+        const=str(DEPENDENCY_REPORT_FILE),
+        help="Generate dependency map report; optional output path (defaults to spicer_dependencies.txt)",
+    )
     args = parser.parse_args()
 
     if args.status:
@@ -2481,6 +3190,11 @@ def main():
 
     if args.predeploy_check:
         raise SystemExit(print_predeploy_checks_noninteractive())
+
+    if args.dependency_report:
+        cmd = ["bash", str(DEPENDENCY_REPORT_SCRIPT), str(ROOT), str(args.dependency_report)]
+        result = subprocess.run(cmd)
+        raise SystemExit(result.returncode)
 
     main_menu()
 

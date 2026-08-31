@@ -1,16 +1,64 @@
 """Flask entrypoint for receiving CompanyCam webhooks and syncing to MarketSharp."""
 
-from flask import Flask, request, jsonify # type: ignore
+import sys
+import os
+from pathlib import Path
+
+_THIS_DIR = Path(__file__).resolve().parent
+_ROOT_DIR = _THIS_DIR.parent
+for _candidate in (str(_THIS_DIR), str(_ROOT_DIR)):
+    if _candidate not in sys.path:
+        sys.path.insert(0, _candidate)
+
+from flask import Flask, request, jsonify, send_from_directory # type: ignore
 import logging
 from collections import deque
 from webhook_handler import WebhookHandler
 from config import Config
 from security import IdempotencyStore, extract_event_id, verify_webhook_auth
+from ops_api import ops_bp
+
+try:
+    from portal_api import portal_bp
+    _PORTAL_IMPORT_ERROR = None
+except Exception as _portal_exc:
+    portal_bp = None
+    _PORTAL_IMPORT_ERROR = _portal_exc
 
 app = Flask(__name__)
+app.register_blueprint(ops_bp)
+if portal_bp is not None:
+    app.register_blueprint(portal_bp)
+else:
+    logging.warning('portal_api unavailable at startup: %s', _PORTAL_IMPORT_ERROR)
 handler = WebhookHandler()
 idempotency_store = IdempotencyStore(Config.IDEMPOTENCY_DB_PATH)
 recent_comments = deque(maxlen=100)
+OPS_GUI_DIST = Path(__file__).resolve().parent.parent / 'API Handler Interactive GUI' / 'dist'
+CUSTOMER_PORTAL_DIST = Path(__file__).resolve().parent.parent / 'customer-portal' / 'dist'
+TAGGER_DIR = Path(__file__).resolve().parent.parent / 'tagger'
+
+
+def _resolve_email_splash_path():
+    """Resolve the local splash image path for email rendering."""
+    configured = (os.getenv('COMMENT_WORKER_SPLASH_IMAGE_PATH', '') or '').strip()
+    if configured:
+        candidate = Path(configured)
+        if not candidate.is_absolute():
+            candidate = (TAGGER_DIR / configured).resolve()
+        return candidate
+
+    fallback_candidates = [
+        TAGGER_DIR / 'ascii-art-text(11).png',
+        TAGGER_DIR / 'splash_dim_yellow.png',
+        TAGGER_DIR / 'splash_dim_yellow_final.png',
+    ]
+    for candidate in fallback_candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    # Final fallback keeps legacy behavior if none of the expected files exist.
+    return TAGGER_DIR / 'splash_dim_yellow.png'
 
 # Keep logs structured enough for grep/tail when running under systemd or Docker.
 logging.basicConfig(
@@ -103,6 +151,60 @@ def clear_comments():
     """Clear the in-memory development comments feed."""
     recent_comments.clear()
     return jsonify({'success': True, 'count': 0}), 200
+
+
+@app.route('/ops-gui', methods=['GET'])
+@app.route('/ops-gui/', methods=['GET'])
+@app.route('/ops-gui/<path:asset_path>', methods=['GET'])
+def ops_gui(asset_path=''):
+    """Serve the built ops GUI as a static SPA under /ops-gui."""
+    if not OPS_GUI_DIST.exists():
+        return jsonify({
+            'success': False,
+            'message': 'Ops GUI build not found. Run npm run build:ops-gui in API Handler Interactive GUI.'
+        }), 404
+
+    if asset_path:
+        target = OPS_GUI_DIST / asset_path
+        if target.exists() and target.is_file():
+            return send_from_directory(str(OPS_GUI_DIST), asset_path)
+
+    return send_from_directory(str(OPS_GUI_DIST), 'index.html')
+
+
+@app.route('/customer-portal', methods=['GET'])
+@app.route('/customer-portal/', methods=['GET'])
+@app.route('/customer-portal/<path:asset_path>', methods=['GET'])
+def customer_portal(asset_path=''):
+    """Serve the built customer portal SPA under /customer-portal."""
+    if not CUSTOMER_PORTAL_DIST.exists():
+        return jsonify({
+            'success': False,
+            'message': 'Customer portal build not found. Build the customer-portal app first.'
+        }), 404
+
+    if asset_path:
+        target = CUSTOMER_PORTAL_DIST / asset_path
+        if target.exists() and target.is_file():
+            return send_from_directory(str(CUSTOMER_PORTAL_DIST), asset_path)
+
+    return send_from_directory(str(CUSTOMER_PORTAL_DIST), 'index.html')
+
+
+@app.route('/assets/email-splash.png', methods=['GET'])
+def email_splash_asset():
+    """Serve the email splash image from local disk via HTTP.
+
+    This route exists so email clients can load a stable URL instead of relying
+    on data-URI image support, which is inconsistent in mobile inbox apps.
+    """
+    splash_path = _resolve_email_splash_path()
+    if not splash_path.exists() or not splash_path.is_file():
+        return jsonify({
+            'success': False,
+            'message': f'Email splash image not found: {splash_path}'
+        }), 404
+    return send_from_directory(str(splash_path.parent), splash_path.name)
 
 @app.route('/webhook/companycam', methods=['POST'])
 def companycam_webhook():
