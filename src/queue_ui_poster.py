@@ -2,6 +2,17 @@
 
 This is intended for environments where API write access is unavailable but a
 human-authenticated browser session can be maintained.
+
+Purpose:
+- Replay queued comment work through authenticated MarketSharp UI flows.
+
+Direct Dependents:
+- Consumes and updates row state in src/pending_queue.py.
+- Uses src/marketsharp_service.py for lookup support and identifiers.
+
+Portal Impact:
+- Session/auth behavior here is shared by portal UI-based artifact scrapers;
+    breakage can indirectly surface as stale portal diagnostics.
 """
 
 import logging
@@ -32,6 +43,11 @@ from mention_style import apply_note_mention_style  # noqa: E402
 from mapping_registry import load_mapping_env, load_mapping_file, merge_contact_mappings  # noqa: E402
 from pending_queue import PendingCommentQueue  # noqa: E402
 from posted_comments_audit import log_posted_comment  # noqa: E402  # type: ignore
+
+# Startup may wait on a human to log in; mid-run re-auth must fail fast so a bad
+# page lands in the search-variant fallback instead of stalling the whole queue.
+STARTUP_LOGIN_TIMEOUT_MS = int(os.getenv('QUEUE_STARTUP_LOGIN_TIMEOUT_MS', '300000'))
+MID_RUN_LOGIN_TIMEOUT_MS = int(os.getenv('QUEUE_MID_RUN_LOGIN_TIMEOUT_MS', '60000'))
 
 
 @dataclass
@@ -72,7 +88,11 @@ def _get_companycam_service():
 
 
 def build_ui_config():
-    """Load UI automation selectors from environment variables."""
+    """Load UI automation selectors from environment variables.
+
+    Keep selector/env definitions centralized here so both worker startup
+    validation and runtime behavior stay aligned across deployments.
+    """
     contact_url_map_file = os.getenv(
         'MARKETSHARP_UI_CONTACT_URL_MAP_FILE',
         'marketsharp_contact_mappings.json',
@@ -129,8 +149,13 @@ def validate_ui_config(ui_cfg):
         ui_cfg.note_mention_style = 'plain'
 
 
-def wait_for_login(page, ui_cfg):
-    """Handle login if not already authenticated."""
+def wait_for_login(page, ui_cfg, timeout_ms=STARTUP_LOGIN_TIMEOUT_MS):
+    """Handle login if not already authenticated.
+
+        Cross-File Effects:
+    - Attachment/finance scraping modules depend on the same credential and
+      session expectations when they bootstrap UI-authenticated fetches.
+    """
     if not ui_cfg.login_check_selector:
         logging.info('No login-check selector configured; waiting 30 seconds for manual login.')
         time.sleep(30)
@@ -148,8 +173,11 @@ def wait_for_login(page, ui_cfg):
         page.wait_for_load_state('domcontentloaded', timeout=30000)
         logging.info('Auto-login submitted; waiting for dashboard.')
 
-    logging.info('Waiting for login check selector: %s', ui_cfg.login_check_selector)
-    page.wait_for_selector(ui_cfg.login_check_selector, timeout=300000, state='attached')
+    logging.info(
+        'Waiting up to %sms for login check selector: %s',
+        timeout_ms, ui_cfg.login_check_selector,
+    )
+    page.wait_for_selector(ui_cfg.login_check_selector, timeout=timeout_ms, state='attached')
     logging.info('Login check selector detected; continuing worker startup.')
 
 
@@ -846,13 +874,17 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
             except PlaywrightTimeoutError:
                 return False
 
-        if page.query_selector('#UsernameTextBox') is not None or _on_wrong_page():
+        session_expired = page.query_selector('#UsernameTextBox') is not None
+        if session_expired or _on_wrong_page():
             logging.warning(
                 'Direct URL navigation for %s landed on unexpected page (%s); '
-                're-authenticating and retrying.',
-                customer_name, page.url,
+                'retrying (session_expired=%s).',
+                customer_name, page.url, session_expired,
             )
-            wait_for_login(page, ui_cfg)
+            # Record View means the session is valid; the login-check selector never
+            # renders there, so re-authenticating would just burn the full timeout.
+            if session_expired:
+                wait_for_login(page, ui_cfg, timeout_ms=MID_RUN_LOGIN_TIMEOUT_MS)
             page.goto(direct_contact_url, wait_until='load', timeout=120000)
             try:
                 page.wait_for_load_state('networkidle', timeout=15000)
@@ -951,7 +983,7 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
             # Only check for the explicit login form — if it's present, session expired visibly.
             if page.query_selector('#UsernameTextBox') is not None:
                 logging.warning('Session expired (login form) after base_url navigation; re-authenticating.')
-                wait_for_login(page, ui_cfg)
+                wait_for_login(page, ui_cfg, timeout_ms=MID_RUN_LOGIN_TIMEOUT_MS)
                 page.wait_for_load_state('domcontentloaded', timeout=15000)
 
             # Note: on www1.marketsharpm.com, AppEntryRouting.aspx IS the dashboard URL and
@@ -1223,6 +1255,11 @@ def open_customer_and_add_note(page, ui_cfg, item, note_text, search_override=No
 
 
 def process_once(page, ui_cfg, queue):
+    """Process one queue cycle and update durable queue state.
+
+    This function is the core replay loop boundary where customer lookup,
+    UI interaction, and queue status transitions converge.
+    """
     """Process one pending batch and return number of attempted rows."""
 
     logging.info(f"[Worker] Claiming up to {ui_cfg.batch_size} pending items from queue DB: {getattr(queue, 'db_path', 'unknown')}")

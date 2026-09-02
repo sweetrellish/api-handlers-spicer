@@ -206,8 +206,11 @@ WORKER_SERVICES = [
     "marketsharp_comment_worker.service"
 ]
 # ALL_SERVICES includes the workers plus the Flask API service and the true_fail checker.
+# The Flask app (webhook receiver + /ops API + ops-gui) runs under spicer-webhook.service,
+# which is the only unit that binds 0.0.0.0:5001. spicer-flask-api.service was a duplicate
+# of the same ExecStart and is masked; do not re-add it here.
 ALL_SERVICES = WORKER_SERVICES + [
-    "spicer-flask-api.service",
+    "spicer-webhook.service",
     "true_fail_checker.service",
 ]
 
